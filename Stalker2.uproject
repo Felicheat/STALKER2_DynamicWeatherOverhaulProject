@@ -3,6 +3,16 @@
 	"EngineAssociation": "5.1",
 	"Category": "",
 	"Description": "",
+	"Modules": [
+		{
+			"Name": "Stalker2",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"AdditionalDependencies": [
+				"Engine"
+			]
+		}
+	],
 	"Plugins": [
 		{
 			"Name": "ModelingToolsEditorMode",
@@ -10,28 +20,6 @@
 			"TargetAllowList": [
 				"Editor"
 			]
-		},
-		{
-			"Name": "EasyJsonParser",
-			"Enabled": false,
-			"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/content/22108e274b5d4e5ab92c0a7b961caf13"
-		},
-		{
-			"Name": "BlueprintJson",
-			"Enabled": false,
-			"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/content/f837e4835fbc434a853fe1ead2410b84"
-		},
-		{
-			"Name": "JsonBlueprintUtilities",
-			"Enabled": true
-		},
-		{
-			"Name": "JWT",
-			"Enabled": true
-		},
-		{
-			"Name": "JsonAsAsset",
-			"Enabled": true
 		}
 	]
 }
