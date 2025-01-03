@@ -17,6 +17,7 @@ enum class EWeather : uint8 {
 	Thundery,
 	Emission,
 	CalmBeforeEmission,
+    CustomFeliche,
 	Count,
 };
 
@@ -442,4 +443,15 @@ public:
     
     UPROPERTY(BlueprintReadWrite, EditAnywhere, meta=(AllowPrivateAccess=true))
     TMap<EWeather, float> TransitionDurations;
+};
+
+
+UINTERFACE(MinimalAPI)
+class UGSCCustomActorValidatorInterface : public UInterface {
+    GENERATED_BODY()
+};
+
+class IGSCCustomActorValidatorInterface : public IInterface {
+    GENERATED_BODY()
+public:
 };
