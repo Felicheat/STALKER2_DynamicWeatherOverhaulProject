@@ -2,13 +2,13 @@
 
 using UnrealBuildTool;
 
-public class Stalker2 : ModuleRules
-{
-	public Stalker2(ReadOnlyTargetRules Target) : base(Target)
-	{
-		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore" });
+public class Stalker2 : ModuleRules {
+    public Stalker2(ReadOnlyTargetRules Target) : base(Target) {
+        PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+        bLegacyPublicIncludePaths = false;
+        ShadowVariableWarningLevel = WarningLevel.Warning;
+        
+        PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "AkAudio", "Niagara" });
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
 

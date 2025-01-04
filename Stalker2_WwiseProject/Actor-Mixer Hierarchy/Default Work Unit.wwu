@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WwiseDocument Type="WorkUnit" ID="{4B5723D5-742F-4416-9C3E-A6DC340E155D}" SchemaVersion="119">
+	<AudioObjects>
+		<WorkUnit Name="Default Work Unit" ID="{4B5723D5-742F-4416-9C3E-A6DC340E155D}" PersistMode="Standalone">
+			<ChildrenList>
+				<Sound Name="419262210" ID="{97FB646E-FC02-47AB-9FCA-5B7710416F05}" ShortID="1051006644">
+					<ReferenceList>
+						<Reference Name="Conversion">
+							<ObjectRef Name="Default Conversion Settings" ID="{6D1B890C-9826-4384-BF07-C15223E9FB56}" WorkUnitID="{7E76F763-6D43-4CB1-AB0C-F80A2B7E2247}"/>
+						</Reference>
+						<Reference Name="OutputBus">
+							<ObjectRef Name="Master Audio Bus" ID="{1514A4D8-1DA6-412A-A17E-75CA0C2149F3}" WorkUnitID="{248B60B5-7C3F-4550-8820-82881730B276}"/>
+						</Reference>
+					</ReferenceList>
+					<ChildrenList>
+						<AudioFileSource Name="419262210" ID="{C7C94AB9-376D-4750-AF9A-E3854A60EBCB}">
+							<Language>SFX</Language>
+							<AudioFile>419262210.wav</AudioFile>
+							<MediaIDList>
+								<MediaID ID="411194428"/>
+							</MediaIDList>
+						</AudioFileSource>
+					</ChildrenList>
+					<ActiveSourceList>
+						<ActiveSource Name="419262210" ID="{C7C94AB9-376D-4750-AF9A-E3854A60EBCB}" Platform="Linked"/>
+					</ActiveSourceList>
+				</Sound>
+			</ChildrenList>
+		</WorkUnit>
+	</AudioObjects>
+</WwiseDocument>
