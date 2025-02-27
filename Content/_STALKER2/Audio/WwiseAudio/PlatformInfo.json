@@ -1,16 +1,16 @@
 {
  "PlatformInfo": {
   "Platform": {
-   "Name": "Mac",
-   "BasePlatform": "Mac",
+   "Name": "Windows",
+   "BasePlatform": "Windows",
    "Generator": "2023.1.10.8659"
   },
   "RootPaths": {
-   "ProjectRoot": "../../Stalker2_WwiseProject",
-   "SourceFilesRoot": "../../Stalker2_WwiseProject/.cache/Mac",
+   "ProjectRoot": "../../../../Stalker2_WwiseProject",
+   "SourceFilesRoot": "../../../../Stalker2_WwiseProject/.cache/Windows",
    "SoundBanksRoot": ".",
    "ExternalSourcesInputFile": "",
-   "ExternalSourcesOutputRoot": "../../Stalker2_WwiseProject/GeneratedSoundBanks/Mac"
+   "ExternalSourcesOutputRoot": "../../../../Stalker2_WwiseProject/GeneratedSoundBanks/Windows"
   },
   "DefaultAlign": "16",
   "Settings": {
@@ -32,6 +32,6 @@
    "PrintObjectGuid": "true",
    "PrintObjectPath": "true"
   },
-  "FileHash": "{1460790C-ECA9-84DB-F18D-DC355FBBEE88}"
+  "FileHash": "{461080BD-83F4-30A4-5FE3-BB8F393FA2C8}"
  }
 }

@@ -3,7 +3,7 @@
   "Project": {
    "Name": "Stalker2_WwiseProject",
    "GUID": "{F4F03136-67AC-47E1-8B19-DE8E5D46197E}",
-   "Generator": "2023.1.2.8444"
+   "Generator": "2023.1.10.8659"
   },
   "CacheRoot": "../../Stalker2_WwiseProject/.cache",
   "Platforms": [
@@ -19,7 +19,7 @@
     "GUID": "{23E12705-1CEC-405F-B48E-695F6C7AB1DE}",
     "BasePlatform": "Windows",
     "BasePlatformGUID": "{6E0CB257-C6C8-4C5C-8366-2740DFC441EB}",
-    "Path": "."
+    "Path": "../_STALKER2/Audio/WwiseAudio"
    }
   ],
   "Languages": [
@@ -31,6 +31,6 @@
     "UseAsStandIn": "true"
    }
   ],
-  "FileHash": "{EC8FF923-19AB-B2D8-154F-DB9EC9BBF69A}"
+  "FileHash": "{D394F8F4-A45D-F4C6-6320-9E64CD4D2240}"
  }
 }

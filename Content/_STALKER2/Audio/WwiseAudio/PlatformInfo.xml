@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PlatformInfo>
-	<Platform Name="Mac" BasePlatform="Mac" Generator="2023.1.10.8659"/>
+	<Platform Name="Windows" BasePlatform="Windows" Generator="2023.1.10.8659"/>
 	<RootPaths>
-		<ProjectRoot>../../Stalker2_WwiseProject</ProjectRoot>
-		<SourceFilesRoot>../../Stalker2_WwiseProject/.cache/Mac</SourceFilesRoot>
+		<ProjectRoot>../../../../Stalker2_WwiseProject</ProjectRoot>
+		<SourceFilesRoot>../../../../Stalker2_WwiseProject/.cache/Windows</SourceFilesRoot>
 		<SoundBanksRoot>.</SoundBanksRoot>
 		<ExternalSourcesInputFile></ExternalSourcesInputFile>
-		<ExternalSourcesOutputRoot>../../Stalker2_WwiseProject/GeneratedSoundBanks/Mac</ExternalSourcesOutputRoot>
+		<ExternalSourcesOutputRoot>../../../../Stalker2_WwiseProject/GeneratedSoundBanks/Windows</ExternalSourcesOutputRoot>
 	</RootPaths>
 	<DefaultAlign>16</DefaultAlign>
 	<Settings>
@@ -28,5 +28,5 @@
 		<PrintObjectGuid>true</PrintObjectGuid>
 		<PrintObjectPath>true</PrintObjectPath>
 	</Settings>
-	<FileHash>{A4DFB497-9F45-DD67-E4D0-5815204D1261}</FileHash>
+	<FileHash>{0761323E-0B39-815D-B746-D52F6865570C}</FileHash>
 </PlatformInfo>

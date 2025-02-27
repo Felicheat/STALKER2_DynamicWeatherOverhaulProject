@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<WwiseDocument Type="Project" SchemaVersion="119" WwiseVersion="v2023.1.2" WwiseBuild="8444">
+<WwiseDocument Type="Project" SchemaVersion="119" WwiseVersion="v2023.1.10" WwiseBuild="8659">
 	<ProjectInfo>
 		<Project Name="Stalker2_WwiseProject" ID="{F4F03136-67AC-47E1-8B19-DE8E5D46197E}">
 			<Platforms>
@@ -13,6 +13,7 @@
 				<Language Name="SFX" ID="{D1F6B72B-6D6B-4D5E-94FB-92AC8598F4F9}"/>
 			</LanguageList>
 			<PropertyList>
+				<Property Name="AutoSoundBankEnabled" Type="bool" Value="True"/>
 				<Property Name="ExternalSourcesInputPath" Type="string">
 					<ValueList>
 						<Value Platform="Windows"></Value>
@@ -31,7 +32,7 @@
 				<Property Name="SoundBankIncludeSoundbankNamesStrings" Type="bool" Value="False"/>
 				<Property Name="SoundBankPaths" Type="string">
 					<ValueList>
-						<Value Platform="Windows">..\Content\WwiseAudio\</Value>
+						<Value Platform="Windows">..\Content\_STALKER2\Audio\WwiseAudio\</Value>
 						<Value Platform="Mac">..\Content\WwiseAudio\</Value>
 					</ValueList>
 				</Property>
