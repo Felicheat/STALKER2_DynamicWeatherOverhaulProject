@@ -110,21 +110,7 @@ UPropertySerializer::UPropertySerializer() {
 }
 
 void UPropertySerializer::DeserializePropertyValue(FProperty* Property, const TSharedRef<FJsonValue>& JsonValue, void* Value) {
-	// Handle statically sized array properties
-	Property->ArrayDim = 1;
-
-	if (Property->ArrayDim != 1) {
-		const TArray<TSharedPtr<FJsonValue>>& ArrayElements = JsonValue->AsArray();
-
-		for (int32 ArrayIndex = 0; ArrayIndex < Property->ArrayDim; ArrayIndex++) {
-			uint8* ArrayPropertyValue = (uint8*)Value + Property->ElementSize * ArrayIndex;
-			const TSharedRef<FJsonValue> ArrayJsonValue = ArrayElements[ArrayIndex].ToSharedRef();
-
-			DeserializePropertyValueInner(Property, ArrayJsonValue, ArrayPropertyValue);
-		}
-	} else {
-		DeserializePropertyValueInner(Property, JsonValue, Value);
-	}
+	DeserializePropertyValueInner(Property, JsonValue, Value);
 }
 
 void UPropertySerializer::DeserializePropertyValueInner(FProperty* Property, const TSharedRef<FJsonValue>& JsonValue, void* Value) {
@@ -452,7 +438,12 @@ void UPropertySerializer::DeserializePropertyValueInner(FProperty* Property, con
 			// TODO: Somehow add other needed things like Namespace, Key, and LocalizedString 
 			TSharedPtr<FJsonObject> Object = NewJsonValue->AsObject().ToSharedRef();
 
-			TextProperty->SetPropertyValue(Value, FText::FromString(Object->GetStringField(TEXT("SourceString"))));
+			// Retrieve properties
+			FString TextNamespace = Object->GetStringField(TEXT("Namespace"));
+			FString UniqueKey = Object->GetStringField(TEXT("Key"));
+			FString SourceString = Object->GetStringField(TEXT("SourceString"));
+
+			TextProperty->SetPropertyValue(Value, FInternationalization::ForUseOnlyByLocMacroAndGraphNodeTextLiterals_CreateText(*SourceString, *TextNamespace, *UniqueKey));
 		}
 	}
 	else if (const FFieldPathProperty* FieldPathProperty = CastField<const FFieldPathProperty>(Property)) {
@@ -495,8 +486,11 @@ bool UPropertySerializer::ShouldSerializeProperty(FProperty* Property) const {
 	if (Property->HasAnyPropertyFlags(CPF_Deprecated)) {
 		return false;
 	}
+	if (this == nullptr) {
+		return true;
+	}
 	// Skip blacklisted properties
-	if (BlacklistedProperties.Contains(Property)) {
+	if (BlacklistedProperties.Num() > 0 && BlacklistedProperties.Contains(Property)) {
 		return false;
 	}
 	return true;

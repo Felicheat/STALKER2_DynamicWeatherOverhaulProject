@@ -28,29 +28,34 @@
 #include "Importers/Types/ParticleSystemImporter.h"
 #endif
 
-#include "Importers/Types/CurveFloatImporter.h"
-#include "Importers/Types/CurveVectorImporter.h"
-#include "Importers/Types/CurveLinearColorImporter.h"
-#include "Importers/Types/CurveLinearColorAtlasImporter.h"
-#include "Importers/Types/DataTableImporter.h"
+#include "Importers/Types/Curves/CurveFloatImporter.h"
+#include "Importers/Types/Curves/CurveVectorImporter.h"
+#include "Importers/Types/Curves/CurveLinearColorImporter.h"
+#include "Importers/Types/Curves/CurveLinearColorAtlasImporter.h"
+
+#include "Importers/Types/Materials/MaterialInstanceConstantImporter.h"
+#include "Importers/Types/Materials/MaterialFunctionImporter.h"
+#include "Importers/Types/Materials/MaterialImporter.h"
+
+#include "Importers/Types/Animation/BlendspaceImporter.h"
+#include "Importers/Types/Animation/AnimationBaseImporter.h"
+
+#include "Importers/Types/Tables/DataTableImporter.h"
+#include "Importers/Types/Tables/CurveTableImporter.h"
+
+#include "Importers/Types/Audio/SoundCueImporter.h"
 #include "Importers/Types/SkeletonImporter.h"
-#include "Importers/Types/AnimationBaseImporter.h"
-#include "Importers/Types/MaterialFunctionImporter.h"
-#include "Importers/Types/MaterialImporter.h"
-#include "Importers/Types/NiagaraParameterCollectionImporter.h"
-#include "Importers/Types/MaterialInstanceConstantImporter.h"
+#include "Importers/Types/Niagara/NiagaraParameterCollectionImporter.h"
 #include "Importers/Types/DataAssetImporter.h"
-#include "Importers/Types/CurveTableImporter.h"
-#include "Importers/Types/BlendspaceImporter.h"
+#include "Importers/Types/Physics/PhysicsAssetImporter.h"
+#include "Importers/Types/UserDefinedEnumImporter.h"
 // <---- Importers
 
 // Templated Class
 #include "Importers/Constructor/TemplatedImporter.h"
-#include "Importers/Constructor/SoundGraph.h"
 
 // ----------------------- Templated Engine Classes ----------------------------------------------
 #include "Materials/MaterialParameterCollection.h"
-#include "Importers/Types/PhysicsAssetImporter.h"
 #include "Engine/SubsurfaceProfile.h"
 #include "Curves/CurveLinearColor.h"
 #include "Logging/MessageLog.h"
@@ -136,6 +141,10 @@ TArray<FString> ImporterAcceptedTypes = {
 	"", // separator
 
 	"TextureRenderTarget2D"
+	
+	"", // separator
+
+	"UserDefinedEnum"
 };
 
 // Handles the JSON of a file.
@@ -187,7 +196,7 @@ bool IImporter::ImportExports(TArray<TSharedPtr<FJsonValue>> Exports, FString Fi
 					Importer = new IBlendSpaceImporter(Name, File, DataObject, LocalPackage, LocalOutermostPkg);
 
 				else if (Type == "SoundCue") 
-					Importer = new ISoundGraph(Name, File, DataObject, LocalPackage, LocalOutermostPkg, Exports);
+					Importer = new ISoundCueImporter(Name, File, DataObject, LocalPackage, LocalOutermostPkg, Exports);
 
 #if JSONASASSET_PARTICLESYSTEM_ALLOW
 				else if (Type == "ParticleSystem") 
@@ -210,6 +219,9 @@ bool IImporter::ImportExports(TArray<TSharedPtr<FJsonValue>> Exports, FString Fi
  				else if (Type == "DataTable") 
 				    Importer = new IDataTableImporter(Name, File, DataObject, LocalPackage, LocalOutermostPkg);
 
+ 				else if (Type == "UserDefinedEnum") 
+ 					Importer = new IUserDefinedEnumImporter(Name, File, DataObject, LocalPackage, LocalOutermostPkg);
+
 				else // Data Asset
 					if (bDataAsset)
 						Importer = new IDataAssetImporter(Class, Name, File, DataObject, LocalPackage, LocalOutermostPkg, Exports);
@@ -231,7 +243,7 @@ bool IImporter::ImportExports(TArray<TSharedPtr<FJsonValue>> Exports, FString Fi
 
 			if (bHideNotifications) {
 				try {
-					Importer->ImportData();
+					Importer->Import();
 					
 					return true;
 				} catch (const char* Exception) {
@@ -241,7 +253,7 @@ bool IImporter::ImportExports(TArray<TSharedPtr<FJsonValue>> Exports, FString Fi
 				return true;
 			}
 
-			if (Importer != nullptr && Importer->ImportData()) {
+			if (Importer != nullptr && Importer->Import()) {
 				UE_LOG(LogJson, Log, TEXT("Successfully imported \"%s\" as \"%s\""), *Name, *Type);
 				
 				if (!(Type == "AnimSequence" || Type == "AnimMontage"))
@@ -525,12 +537,6 @@ void IImporter::SavePackage() const
 {
 	const UJsonAsAssetSettings* Settings = GetDefault<UJsonAsAssetSettings>();
 
-	FSavePackageArgs SaveArgs; {
-		SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
-		SaveArgs.Error = GError;
-		SaveArgs.SaveFlags = SAVE_NoError;
-	}
-
 	// Ensure the package is valid before proceeding
 	if (Package == nullptr) {
 		UE_LOG(LogTemp, Error, TEXT("Package is null"));
@@ -543,6 +549,12 @@ void IImporter::SavePackage() const
 	// User option to save packages on import
 	if (Settings->AssetSettings.bSavePackagesOnImport) {
 #if ENGINE_MAJOR_VERSION >= 5
+		FSavePackageArgs SaveArgs; {
+			SaveArgs.TopLevelFlags = RF_Public | RF_Standalone;
+			SaveArgs.Error = GError;
+			SaveArgs.SaveFlags = SAVE_NoError;
+		}
+		
 		UPackage::SavePackage(Package, nullptr, *PackageFileName, SaveArgs);
 #else
 		UPackage::SavePackage(Package, nullptr, RF_Standalone, *PackageFileName);

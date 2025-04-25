@@ -39,12 +39,17 @@ inline bool HandlePackageCreation(UObject* Asset, UPackage* Package) {
  * @return Selected Asset
  */
 template <typename T>
-T* GetSelectedAsset() {
+T* GetSelectedAsset(bool SupressErrors = false) {
 	const FContentBrowserModule& ContentBrowserModule = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
 	TArray<FAssetData> SelectedAssets;
 	ContentBrowserModule.Get().GetSelectedAssets(SelectedAssets);
 
 	if (SelectedAssets.Num() == 0) {
+		if (SupressErrors == true)
+		{
+			return nullptr;
+		}
+		
 		GLog->Log("JsonAsAsset: [GetSelectedAsset] None selected, returning nullptr.");
 
 		const FText DialogText = FText::Format(
@@ -60,6 +65,11 @@ T* GetSelectedAsset() {
 	T* CastedAsset = Cast<T>(SelectedAsset);
 
 	if (!CastedAsset) {
+		if (SupressErrors == true)
+		{
+			return nullptr;
+		}
+		
 		GLog->Log("JsonAsAsset: [GetSelectedAsset] Selected asset is not of the required class, returning nullptr.");
 
 		const FText DialogText = FText::Format(
@@ -72,6 +82,12 @@ T* GetSelectedAsset() {
 	}
 
 	return CastedAsset;
+}
+
+template <typename TEnum> 
+TEnum StringToEnum(const FString& StringValue)
+{
+	return StaticEnum<TEnum>() ? static_cast<TEnum>(StaticEnum<TEnum>()->GetValueByNameString(StringValue)) : TEnum();
 }
 
 inline TSharedPtr<FJsonObject> FindExport(const TSharedPtr<FJsonObject>& Export, const TArray<TSharedPtr<FJsonValue>>& File)
@@ -123,14 +139,6 @@ inline TArray<FAssetData> GetAssetsInSelectedFolder()
 
 	// Get all assets in the folder and its subfolders
 	AssetRegistryModule.Get().GetAssetsByPath(FName(*CurrentFolder), AssetDataList, true);
-
-	// No Assets found
-	if (AssetDataList.Num() == 0) {
-		SpawnPrompt(
-			"No Assets Found",
-			"Please go into a folder with assets in it."
-		);
-	}
 
 	return AssetDataList;
 }

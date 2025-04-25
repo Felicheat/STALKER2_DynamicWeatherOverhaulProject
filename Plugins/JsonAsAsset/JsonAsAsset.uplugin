@@ -10,9 +10,10 @@
 	"DocsURL": "https://github.com/JsonAsAsset/JsonAsAsset",
 	"MarketplaceURL": "",
 	"SupportURL": "",
-	"EngineVersion": "5.1.0",
 	"CanContainContent": false,
-	"Installed": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
 	"Modules": [
 		{
 			"Name": "JsonAsAsset",
