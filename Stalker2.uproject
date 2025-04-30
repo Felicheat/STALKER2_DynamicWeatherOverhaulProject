@@ -36,6 +36,10 @@
 		{
 			"Name": "OnlineServicesEOSGS",
 			"Enabled": true
+		},
+		{
+			"Name": "SunPosition",
+			"Enabled": true
 		}
 	]
 }
