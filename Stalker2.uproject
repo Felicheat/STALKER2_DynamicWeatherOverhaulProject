@@ -27,19 +27,19 @@
 		},
 		{
 			"Name": "OnlineServicesEOS",
-			"Enabled": true
+			"Enabled": false
 		},
 		{
 			"Name": "OnlineSubsystemEOS",
-			"Enabled": true
+			"Enabled": false
 		},
 		{
 			"Name": "OnlineServicesEOSGS",
-			"Enabled": true
+			"Enabled": false
 		},
 		{
 			"Name": "SunPosition",
-			"Enabled": true
+			"Enabled": false
 		}
 	]
 }
