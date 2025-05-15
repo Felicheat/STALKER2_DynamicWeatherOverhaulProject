@@ -1,4 +1,4 @@
-﻿// Copyright JAA Contributors 2024-2025
+﻿/* Copyright JsonAsAsset Contributors 2024-2025 */
 
 #include "Utilities/Textures/TextureCreatorUtilities.h"
 
@@ -10,7 +10,7 @@
 #include "nvimage/DirectDrawSurface.h"
 #include "nvimage/Image.h"
 #include "Utilities/EngineUtilities.h"
-#include "Utilities/MathUtilities.h"
+#include "Utilities/JsonUtilities.h"
 #include "Utilities/Textures/TextureDecode/TextureNVTT.h"
 
 bool FTextureCreatorUtilities::CreateTexture2D(UTexture*& OutTexture2D, TArray<uint8>& Data, const TSharedPtr<FJsonObject>& Properties) const {
@@ -18,7 +18,7 @@ bool FTextureCreatorUtilities::CreateTexture2D(UTexture*& OutTexture2D, TArray<u
 
 	UTexture2D* Texture2D = NewObject<UTexture2D>(OutermostPkg, UTexture2D::StaticClass(), *FileName, RF_Standalone | RF_Public);
 
-#if ENGINE_MAJOR_VERSION >= 5
+#if ENGINE_UE5
 	Texture2D->SetPlatformData(new FTexturePlatformData());
 #else
 	Texture2D->PlatformData = new FTexturePlatformData();
@@ -26,7 +26,7 @@ bool FTextureCreatorUtilities::CreateTexture2D(UTexture*& OutTexture2D, TArray<u
 
 	DeserializeTexture2D(Texture2D, SubObjectProperties);
 
-#if ENGINE_MAJOR_VERSION >= 5
+#if ENGINE_UE5
 	FTexturePlatformData* PlatformData = Texture2D->GetPlatformData();
 #else
 	FTexturePlatformData* PlatformData = Texture2D->PlatformData;
@@ -38,15 +38,17 @@ bool FTextureCreatorUtilities::CreateTexture2D(UTexture*& OutTexture2D, TArray<u
 
 	const TArray<TSharedPtr<FJsonValue>>* TextureMipsPtr;
 	Properties->TryGetArrayField(TEXT("Mips"), TextureMipsPtr);
-	if (TextureMipsPtr)
-	{
+	if (TextureMipsPtr) {
 		auto TextureMips = *TextureMipsPtr;
-		if (TextureMips.Num() == 1)
+		if (TextureMips.Num() == 1) {
 			Texture2D->MipGenSettings = TextureMipGenSettings::TMGS_NoMipmaps;
+		}
 	}
 
 	FString PixelFormat;
-	if (Properties->TryGetStringField(TEXT("PixelFormat"), PixelFormat)) PlatformData->PixelFormat = static_cast<EPixelFormat>(Texture2D->GetPixelFormatEnum()->GetValueByNameString(PixelFormat));
+	if (Properties->TryGetStringField(TEXT("PixelFormat"), PixelFormat)) {
+		PlatformData->PixelFormat = static_cast<EPixelFormat>(Texture2D->GetPixelFormatEnum()->GetValueByNameString(PixelFormat));
+	}
 
 	int Size = SizeX * SizeY * (PlatformData->PixelFormat == PF_BC6H ? 16 : 4);
 	if (PlatformData->PixelFormat == PF_B8G8R8A8 || PlatformData->PixelFormat == PF_FloatRGBA || PlatformData->PixelFormat == PF_G16) Size = Data.Num();
@@ -64,8 +66,7 @@ bool FTextureCreatorUtilities::CreateTexture2D(UTexture*& OutTexture2D, TArray<u
 
 	Texture2D->UpdateResource();
 
-	if (Texture2D && Texture2D->IsValidLowLevel() && Texture2D != nullptr)
-		{
+	if (Texture2D && Texture2D->IsValidLowLevel() && Texture2D != nullptr) {
 		OutTexture2D = Texture2D;
 		return true;
 	}
@@ -76,7 +77,7 @@ bool FTextureCreatorUtilities::CreateTexture2D(UTexture*& OutTexture2D, TArray<u
 bool FTextureCreatorUtilities::CreateTextureCube(UTexture*& OutTextureCube, const TArray<uint8>& Data, const TSharedPtr<FJsonObject>& Properties) const {
 	UTextureCube* TextureCube = NewObject<UTextureCube>(Package, UTextureCube::StaticClass(), *FileName, RF_Public | RF_Standalone);
 
-#if ENGINE_MAJOR_VERSION >= 5
+#if ENGINE_UE5
 	TextureCube->SetPlatformData(new FTexturePlatformData());
 #else
 	TextureCube->PlatformData = new FTexturePlatformData();
@@ -84,7 +85,7 @@ bool FTextureCreatorUtilities::CreateTextureCube(UTexture*& OutTextureCube, cons
 
 	DeserializeTexture(TextureCube, Properties);
 
-#if ENGINE_MAJOR_VERSION >= 5
+#if ENGINE_UE5
 	FTexturePlatformData* PlatformData = TextureCube->GetPlatformData();
 #else
 	FTexturePlatformData* PlatformData = TextureCube->PlatformData;
@@ -94,7 +95,9 @@ bool FTextureCreatorUtilities::CreateTextureCube(UTexture*& OutTextureCube, cons
 	const int SizeY = Properties->GetNumberField(TEXT("SizeY")) / 6;
 
 	FString PixelFormat;
-	if (Properties->TryGetStringField(TEXT("PixelFormat"), PixelFormat)) PlatformData->PixelFormat = static_cast<EPixelFormat>(TextureCube->GetPixelFormatEnum()->GetValueByNameString(PixelFormat));
+	if (Properties->TryGetStringField(TEXT("PixelFormat"), PixelFormat)) {
+		PlatformData->PixelFormat = static_cast<EPixelFormat>(TextureCube->GetPixelFormatEnum()->GetValueByNameString(PixelFormat));
+	}
 
 	int Size = SizeX * SizeY * (PlatformData->PixelFormat == PF_BC6H ? 16 : 4);
 	if (PlatformData->PixelFormat == PF_FloatRGBA) Size = Data.Num();
@@ -120,30 +123,36 @@ bool FTextureCreatorUtilities::CreateTextureCube(UTexture*& OutTextureCube, cons
 bool FTextureCreatorUtilities::CreateVolumeTexture(UTexture*& OutVolumeTexture, TArray<uint8>& Data, const TSharedPtr<FJsonObject>& Properties) const {
 	UVolumeTexture* VolumeTexture = NewObject<UVolumeTexture>(Package, UVolumeTexture::StaticClass(), *FileName, RF_Public | RF_Standalone);
 
-#if ENGINE_MAJOR_VERSION >= 5
+	DeserializeTexture(VolumeTexture, Properties);
+
+#if ENGINE_UE5
 	VolumeTexture->SetPlatformData(new FTexturePlatformData());
 #endif
 	FString PixelFormat;
 
-#if ENGINE_MAJOR_VERSION >= 5
+#if ENGINE_UE5
 	FTexturePlatformData* PlatformData = VolumeTexture->GetPlatformData();
 #else
 	FTexturePlatformData* PlatformData = VolumeTexture->PlatformData;
 #endif
-	
-	if (Properties->TryGetStringField(TEXT("PixelFormat"), PixelFormat))
-		PlatformData->PixelFormat = static_cast<EPixelFormat>(VolumeTexture->GetPixelFormatEnum()->GetValueByNameString(PixelFormat));
+
+	if (PlatformData != nullptr) {
+		if (Properties->TryGetStringField(TEXT("PixelFormat"), PixelFormat)) {
+			PlatformData->PixelFormat = static_cast<EPixelFormat>(VolumeTexture->GetPixelFormatEnum()->GetValueByNameString(PixelFormat));
+		}
+
+	}
 
 	DeserializeTexture(VolumeTexture, Properties);
 
-	const int SizeX = Properties->GetNumberField(TEXT("SizeX"));
+	/* const int SizeX = Properties->GetNumberField(TEXT("SizeX"));
 	const int SizeY = Properties->GetNumberField(TEXT("SizeY"));
-	// const int SizeZ = Properties->GetNumberField(TEXT("SizeZ")); // Need to add the property
-	const int SizeZ = 1;
-	int Size = SizeX * SizeY * SizeZ;
+	const int SizeZ = Properties->GetNumberField(TEXT("SizeZ")); Need to add the property */
+	/*constexpr int SizeZ = 1;
+	int Size = SizeX * SizeY * SizeZ;*/
 
 	/* Decompression */
-	uint8* DecompressedData = static_cast<uint8*>(FMemory::Malloc(Size));
+	/*uint8* DecompressedData = static_cast<uint8*>(FMemory::Malloc(Size));
 	GetDecompressedTextureData(Data.GetData(), DecompressedData, SizeX, SizeY, SizeZ, Size, PlatformData->PixelFormat);
 
 	VolumeTexture->Source.Init(SizeX, SizeY, SizeZ, 1, TSF_BGRA8);
@@ -151,7 +160,7 @@ bool FTextureCreatorUtilities::CreateVolumeTexture(UTexture*& OutVolumeTexture, 
 	uint8_t* Dest = VolumeTexture->Source.LockMip(0);
 	FMemory::Memcpy(Dest, DecompressedData, Size);
 	VolumeTexture->Source.UnlockMip(0);
-	VolumeTexture->UpdateResource();
+	VolumeTexture->UpdateResource();*/
 
 	if (VolumeTexture) {
 		OutVolumeTexture = VolumeTexture;
@@ -190,7 +199,7 @@ bool FTextureCreatorUtilities::CreateRenderTarget2D(UTexture*& OutRenderTarget2D
 	}
 
 	const TSharedPtr<FJsonObject>* ClearColor;
-	if (Properties->TryGetObjectField(TEXT("ClearColor"), ClearColor)) RenderTarget2D->ClearColor = FMathUtilities::ObjectToLinearColor(ClearColor->Get());
+	if (Properties->TryGetObjectField(TEXT("ClearColor"), ClearColor)) RenderTarget2D->ClearColor = ObjectToLinearColor(ClearColor->Get());
 
 	if (RenderTarget2D) {
 		OutRenderTarget2D = RenderTarget2D;
@@ -213,8 +222,8 @@ bool FTextureCreatorUtilities::DeserializeTexture2D(UTexture2D* InTexture2D, con
 	if (Properties->TryGetStringField(TEXT("AddressY"), AddressY)) InTexture2D->AddressY = static_cast<TextureAddress>(StaticEnum<TextureAddress>()->GetValueByNameString(AddressY));
 	if (Properties->TryGetBoolField(TEXT("bHasBeenPaintedInEditor"), bHasBeenPaintedInEditor)) InTexture2D->bHasBeenPaintedInEditor = bHasBeenPaintedInEditor;
 
-	// --------- Platform Data --------- //
-#if ENGINE_MAJOR_VERSION >= 5
+	/* ~~~~~~~~~~~~~ Platform Data ~~~~~~~~~~~~~ */
+#if ENGINE_UE5
 	FTexturePlatformData* PlatformData = InTexture2D->GetPlatformData();
 #else
 	FTexturePlatformData* PlatformData = InTexture2D->PlatformData;
@@ -250,106 +259,106 @@ bool FTextureCreatorUtilities::DeserializeTexture(UTexture* Texture, const TShar
 	return false;
 }
 
-void FTextureCreatorUtilities::GetDecompressedTextureData(uint8* Data, uint8*& OutData, const int SizeX, const int SizeY, const int SizeZ, const int TotalSize, const EPixelFormat Format)
-{
-	// NOTE: Not all formats are supported, feel free to add
-	//       if needed. Formats may need other dependencies.
+void FTextureCreatorUtilities::GetDecompressedTextureData(uint8* Data, uint8*& OutData, const int SizeX, const int SizeY, const int SizeZ, const int TotalSize, const EPixelFormat Format) {
+	/* NOTE: Not all formats are supported, feel free to add if needed. Formats may need other dependencies. */
 	switch (Format) {
-	case PF_BC7: {
-		detexTexture Texture;
-		Texture.data = Data;
-		Texture.format = DETEX_TEXTURE_FORMAT_BPTC;
-		Texture.width = SizeX;
-		Texture.height = SizeY;
-		Texture.width_in_blocks = SizeX / 4;
-		Texture.height_in_blocks = SizeY / 4;
-
-		detexDecompressTextureLinear(&Texture, OutData, DETEX_PIXEL_FORMAT_BGRA8);
-	}
-	break;
-
-	case PF_BC6H: {
-		detexTexture Texture;
-		Texture.data = Data;
-		Texture.format = DETEX_TEXTURE_FORMAT_BPTC_FLOAT;
-		Texture.width = SizeX;
-		Texture.height = SizeY;
-		Texture.width_in_blocks = SizeX / 4;
-		Texture.height_in_blocks = SizeY / 4;
-
-		detexDecompressTextureLinear(&Texture, OutData, DETEX_PIXEL_FORMAT_BGRA8);
-	}
-	break;
-
-	case PF_DXT5: {
-		detexTexture Texture;
-		{
+		case PF_BC7: {
+			detexTexture Texture;
 			Texture.data = Data;
-			Texture.format = DETEX_TEXTURE_FORMAT_BC3;
+			Texture.format = DETEX_TEXTURE_FORMAT_BPTC;
 			Texture.width = SizeX;
 			Texture.height = SizeY;
 			Texture.width_in_blocks = SizeX / 4;
 			Texture.height_in_blocks = SizeY / 4;
+
+			detexDecompressTextureLinear(&Texture, OutData, DETEX_PIXEL_FORMAT_BGRA8);
 		}
+		break;
 
-		detexDecompressTextureLinear(&Texture, OutData, DETEX_PIXEL_FORMAT_BGRA8);
-	}
-	break;
+		case PF_BC6H: {
+			detexTexture Texture;
+			Texture.data = Data;
+			Texture.format = DETEX_TEXTURE_FORMAT_BPTC_FLOAT;
+			Texture.width = SizeX;
+			Texture.height = SizeY;
+			Texture.width_in_blocks = SizeX / 4;
+			Texture.height_in_blocks = SizeY / 4;
 
-	// Gray/Grey, not Green, typically actually uses a red format with replication of R to RGB
-	case PF_G8: {
-		const uint8* s = Data;
-		uint8* d = OutData;
-
-		for (int i = 0; i < SizeX * SizeY; i++) {
-			const uint8 b = *s++;
-			*d++ = b;
-			*d++ = b;
-			*d++ = b;
-			*d++ = 255;
+			detexDecompressTextureLinear(&Texture, OutData, DETEX_PIXEL_FORMAT_BGRA8);
 		}
-	}
-	break;
+		break;
 
-	// FloatRGBA: 16F
-	// G16: Gray/Grey like G8
-	case PF_B8G8R8A8:
-	case PF_FloatRGBA:
-	case PF_G16: {
-		FMemory::Memcpy(OutData, Data, TotalSize);
-	}
-	break;
+		case PF_DXT5: {
+			detexTexture Texture;
+			{
+				Texture.data = Data;
+				Texture.format = DETEX_TEXTURE_FORMAT_BC3;
+				Texture.width = SizeX;
+				Texture.height = SizeY;
+				Texture.width_in_blocks = SizeX / 4;
+				Texture.height_in_blocks = SizeY / 4;
+			}
 
-	default: {
-		nv::DDSHeader Header;
-		nv::Image Image;
-
-		uint FourCC;
-		switch (Format) {
-		case PF_BC4:
-			FourCC = FOURCC_ATI1;
-			break;
-		case PF_BC5:
-			FourCC = FOURCC_ATI2;
-			break;
-		case PF_DXT1:
-			FourCC = FOURCC_DXT1;
-			break;
-		case PF_DXT3:
-			FourCC = FOURCC_DXT3;
-			break;
-		default: FourCC = 0;
+			detexDecompressTextureLinear(&Texture, OutData, DETEX_PIXEL_FORMAT_BGRA8);
 		}
+		break;
 
-		Header.setFourCC(FourCC);
-		Header.setWidth(SizeX);
-		Header.setHeight(SizeY);
-		Header.setDepth(SizeZ);
-		Header.setNormalFlag(Format == PF_BC5);
-		DecodeDDS(Data, SizeX, SizeY, SizeZ, Header, Image);
+		/* Gray/Grey, not Green, typically actually uses a red format with replication of R to RGB*/
+		case PF_G8: {
+			const uint8* s = Data;
+			uint8* d = OutData;
 
-		FMemory::Memcpy(OutData, Image.pixels(), TotalSize);
-	}
-	break;
+			for (int i = 0; i < SizeX * SizeY; i++) {
+				const uint8 b = *s++;
+				*d++ = b;
+				*d++ = b;
+				*d++ = b;
+				*d++ = 255;
+			}
+		}
+		break;
+
+		/*
+		 * FloatRGBA: 16F
+		 * G16: Gray/Grey like G8
+		*/
+		case PF_B8G8R8A8:
+		case PF_FloatRGBA:
+		case PF_G16: {
+			FMemory::Memcpy(OutData, Data, TotalSize);
+		}
+		break;
+
+		default: {
+			nv::DDSHeader Header;
+			nv::Image Image;
+
+			uint FourCC;
+			switch (Format) {
+			case PF_BC4:
+				FourCC = FOURCC_ATI1;
+				break;
+			case PF_BC5:
+				FourCC = FOURCC_ATI2;
+				break;
+			case PF_DXT1:
+				FourCC = FOURCC_DXT1;
+				break;
+			case PF_DXT3:
+				FourCC = FOURCC_DXT3;
+				break;
+			default: FourCC = 0;
+			}
+
+			Header.setFourCC(FourCC);
+			Header.setWidth(SizeX);
+			Header.setHeight(SizeY);
+			Header.setDepth(SizeZ);
+			Header.setNormalFlag(Format == PF_BC5);
+			DecodeDDS(Data, SizeX, SizeY, SizeZ, Header, Image);
+
+			FMemory::Memcpy(OutData, Image.pixels(), TotalSize);
+		}
+		break;
 	}
 }

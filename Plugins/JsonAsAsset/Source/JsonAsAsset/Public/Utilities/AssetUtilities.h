@@ -1,8 +1,8 @@
-// Copyright JAA Contributors 2024-2025
+/* Copyright JsonAsAsset Contributors 2024-2025 */
 
 #pragma once
 
-#include "AppStyleCompatibility.h"
+#include "Compatibility.h"
 
 class JSONASASSET_API FAssetUtilities {
 public:
@@ -16,14 +16,11 @@ public:
 	static UPackage* CreateAssetPackage(const FString& Name, const FString& OutputPath, UPackage*& OutOutermostPkg);
 	
 public:
+	/* Importing assets from Local Fetch */
 	template <class T = UObject>
 	static bool ConstructAsset(const FString& Path, const FString& Type, TObjectPtr<T>& OutObject, bool& bSuccess);
 	
-	static bool Construct_TypeTexture(const FString& Path, const FString& RealPath, UTexture*& OutTexture);
+	static bool Construct_TypeTexture(const FString& Path, const FString& FetchPath, UTexture*& OutTexture);
 
-	// Creates a plugin in the name (may result in bugs if inputted wrong)
-	static void CreatePlugin(FString PluginName);
-
-	static TSharedPtr<FJsonObject> API_RequestExports(const FString& Path,
-	                                                  const FString& FetchPath = "/api/v1/export?raw=true&path=");
+	static TSharedPtr<FJsonObject> API_RequestExports(const FString& Path, const FString& FetchPath = "/api/export?raw=true&path=");
 };

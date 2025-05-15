@@ -1,26 +1,25 @@
-// Copyright JAA Contributors 2024-2025
+/* Copyright JsonAsAsset Contributors 2024-2025 */
 
 #include "JsonAsAsset.h"
 
 #include "./Importers/Constructor/Importer.h"
 
-// ------------------------------------------------------------------------------------------------------------>
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
 
-#if ENGINE_MAJOR_VERSION >= 5
+#if ENGINE_UE5
 #include "Interfaces/IMainFrameModule.h"
+#include "Logging/MessageLog.h"
 #else
+/* ReSharper disable once CppUnusedIncludeDirective */
 #include "MainFrame/Public/Interfaces/IMainFrameModule.h"
 #endif
 
-#if ENGINE_MAJOR_VERSION == 4
+#if ENGINE_UE4
 #include "ToolMenus.h"
 #include "Logging/MessageLog.h"
 #include "LevelEditor.h"
 #endif
 
-#include "PhysicsEngine/BodySetup.h"
-
-#include "Interfaces/IPluginManager.h"
 #include "Settings/JsonAsAssetSettings.h"
 #include "Widgets/Notifications/SNotificationList.h"
 #include "Framework/Notifications/NotificationManager.h"
@@ -29,14 +28,23 @@
 #include "MessageLogModule.h"
 #include "Styling/SlateIconFinder.h"
 
-// Settings
+/* Settings */
 #include "./Settings/Details/JsonAsAssetSettingsDetails.h"
 
+/* ReSharper disable once CppUnusedIncludeDirective */
+#include "HttpModule.h"
+#include "Modules/Tools/AnimationData.h"
+#include "Modules/Tools/ClearImportData.h"
+#include "Modules/Tools/ConvexCollision.h"
+
+/* ReSharper disable once CppUnusedIncludeDirective */
 #include "Modules/UI/AboutJsonAsAsset.h"
+
 #include "Modules/UI/CommandsModule.h"
 #include "Modules/UI/StyleModule.h"
-#include "Utilities/AppStyleCompatibility.h"
-// <------------------------------------------------------------------------------------------------------------
+#include "Utilities/Compatibility.h"
+#include "Utilities/RemoteUtilities.h"
+/* ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
 
 #ifdef _MSC_VER
 #undef GetObject
@@ -54,8 +62,9 @@ void FJsonAsAssetModule::PluginButtonClicked() {
 
 	const FString ExportDirectoryPath = Settings->ExportDirectory.Path;
 	
-	if (ExportDirectoryPath.IsEmpty())
+	if (ExportDirectoryPath.IsEmpty()) {
 		return;
+	}
 
 	/* Invalid Export Directory */
 	if (ExportDirectoryPath.Contains("\\")) {
@@ -65,8 +74,9 @@ void FJsonAsAssetModule::PluginButtonClicked() {
 		SavePluginConfig(Settings);
 	}
 
+	/* Launch Local Fetch if not opened already */
 	if (Settings->bEnableLocalFetch) {
-		TSharedPtr<SNotificationItem> NotificationItem = LocalFetchNotificationPtr.Pin();
+		const TSharedPtr<SNotificationItem> NotificationItem = LocalFetchNotificationPtr.Pin();
 
 		if (NotificationItem.IsValid()) {
 			NotificationItem->SetFadeOutDuration(0.001);
@@ -74,82 +84,99 @@ void FJsonAsAssetModule::PluginButtonClicked() {
 			LocalFetchNotificationPtr.Reset();
 		}
 
-		bool bIsLocalHost = Settings->LocalFetchUrl.StartsWith("http://localhost");
+		const bool bIsLocalHost = Settings->LocalFetchUrl.StartsWith("http://localhost");
 
-		if (!IsProcessRunning("LocalFetch.exe") && bIsLocalHost) {
-			FNotificationInfo Info(LOCTEXT("JsonAsAssetNotificationTitle", "Local Fetch API Required"));
-#if ENGINE_MAJOR_VERSION >= 5
-			Info.SubText = LOCTEXT("JsonAsAssetNotificationText",
-				"Start the Local Fetch API to use JsonAsAsset seamlessly. "
-				"For guidance on Local Fetch settings, check the documentation."
-			);
-#endif
+		if (bIsLocalHost && !IsProcessRunning("LocalFetch.exe") && LocalFetchModule::IsSetup(Settings)) {
+			const bool bLocalFetchLaunched = LocalFetchModule::LaunchLocalFetch();
 
-			Info.HyperlinkText = LOCTEXT("JsonAsAssetDocumentationLink", "Documentation");
-			Info.Hyperlink = FSimpleDelegate::CreateStatic([]() {
-				const FString URL = "https://github.com/JsonAsAsset/JsonAsAsset";
-				FPlatformProcess::LaunchURL(*URL, nullptr, nullptr);
+			if (!bLocalFetchLaunched) {
+				FNotificationInfo Info(LOCTEXT("JsonAsAssetNotificationTitle", "Local Fetch API Required"));
+				
+				SetNotificationSubText(Info, LOCTEXT("JsonAsAssetNotificationText",
+					"Start the Local Fetch API to use JsonAsAsset seamlessly. "
+					"For guidance on Local Fetch settings, check the documentation."
+				));
+
+				Info.HyperlinkText = LOCTEXT("JsonAsAssetDocumentationLink", "Documentation");
+				Info.Hyperlink = FSimpleDelegate::CreateStatic([]() {
+					const FString URL = "https://github.com/JsonAsAsset/JsonAsAsset";
+					FPlatformProcess::LaunchURL(*URL, nullptr, nullptr);
+				});
+
+				Info.bFireAndForget = false;
+				Info.FadeOutDuration = 3.0f;
+				Info.ExpireDuration = 3.0f;
+				Info.bUseLargeFont = false;
+				Info.bUseThrobber = false;
+				Info.Image = FJsonAsAssetStyle::Get().GetBrush("JsonAsAsset.Toolbar.Icon");
+
+				Info.ButtonDetails.Add(
+					FNotificationButtonInfo(LOCTEXT("StartLocalFetch", "Execute LocalFetch API (.EXE)"), FText::GetEmpty(),
+						FSimpleDelegate::CreateStatic([]() {
+							const TSharedPtr<SNotificationItem> NotificationItem = LocalFetchNotificationPtr.Pin();
+
+							if (NotificationItem.IsValid()) {
+								NotificationItem->SetFadeOutDuration(0.001);
+								NotificationItem->Fadeout();
+								LocalFetchNotificationPtr.Reset();
+							}
+
+							LocalFetchModule::LaunchLocalFetch();
+						})
+					)
+				);
+
+				LocalFetchNotificationPtr = FSlateNotificationManager::Get().AddNotification(Info);
+				LocalFetchNotificationPtr.Pin()->SetCompletionState(SNotificationItem::CS_Pending);
+
+				return;
+			}	
+		}
+	}
+
+	if (Settings->bEnableLocalFetch) {
+		/* If GameName isn't set, try getting it from the API */
+		if (Settings->AssetSettings.GameName.IsEmpty()) {
+			SendHttpRequest(TEXT("http://localhost:1500/api/name"), [this](FHttpRequestPtr, const FHttpResponsePtr& Response, const bool bWasSuccessful) {
+				if (bWasSuccessful && Response.IsValid()) {
+					UJsonAsAssetSettings* Settings = GetMutableDefault<UJsonAsAssetSettings>();
+
+					Settings->AssetSettings.GameName = Response->GetContentAsString();
+					if (Settings->AssetSettings.GameName.IsEmpty()) Settings->AssetSettings.GameName = "None";
+					
+					SavePluginConfig(Settings);
+				}
+
+				PluginButtonClicked();
 			});
-
-			Info.bFireAndForget = false;
-			Info.FadeOutDuration = 3.0f;
-			Info.ExpireDuration = 3.0f;
-			Info.bUseLargeFont = false;
-			Info.bUseThrobber = false;
-			Info.Image = FJsonAsAssetStyle::Get().GetBrush("JsonAsAsset.Logo");
-
-			Info.ButtonDetails.Add(
-				FNotificationButtonInfo(LOCTEXT("StartLocalFetch", "Execute LocalFetch API (.EXE)"), FText::GetEmpty(),
-					FSimpleDelegate::CreateStatic([]() {
-						TSharedPtr<SNotificationItem> NotificationItem = LocalFetchNotificationPtr.Pin();
-
-						if (NotificationItem.IsValid()) {
-							NotificationItem->SetFadeOutDuration(0.001);
-							NotificationItem->Fadeout();
-							LocalFetchNotificationPtr.Reset();
-						}
-
-						LocalFetchModule::LaunchLocalFetch();
-					})
-				)
-			);
-
-			LocalFetchNotificationPtr = FSlateNotificationManager::Get().AddNotification(Info);
-			LocalFetchNotificationPtr.Pin()->SetCompletionState(SNotificationItem::CS_Pending);
 
 			return;
 		}
 	}
 
-	// Dialog for a JSON File
+	/* Dialog for a JSON File */
 	TArray<FString> OutFileNames = OpenFileDialog("Open JSON file", "JSON Files|*.json");
 	if (OutFileNames.Num() == 0)
 		return;
 
 	for (FString& File : OutFileNames) {
-		// Clear Message Log
+		/* Clear Message Log */
 		FMessageLogModule& MessageLogModule = FModuleManager::GetModuleChecked<FMessageLogModule>("MessageLog");
-		TSharedRef<IMessageLogListing> LogListing = (MessageLogModule.GetLogListing("JsonAsAsset"));
+		const TSharedRef<IMessageLogListing> LogListing = (MessageLogModule.GetLogListing("JsonAsAsset"));
 		LogListing->ClearMessages();
 
-		// Import asset by IImporter
-		IImporter* Importer = new IImporter();
-		Importer->ImportReference(File);
+		/* Import asset by IImporter */
+		IImporter::ImportReference(File);
 	}
 }
 
 void FJsonAsAssetModule::StartupModule() {
-    // Initialize plugin style, reload textures, and register commands
+    /* Initialize plugin style, reload textures, and register commands */
     FJsonAsAssetStyle::Initialize();
     FJsonAsAssetStyle::ReloadTextures();
     FJsonAsAssetCommands::Register();
 
-	this->PropertySerializer = NewObject<UPropertySerializer>();
-	this->GObjectSerializer = NewObject<UObjectSerializer>();
-
-	GObjectSerializer->SetPropertySerializer(PropertySerializer);
-
-    // Set up plugin command list and map actions
+    /* Set up plugin command list and map actions */
     PluginCommands = MakeShareable(new FUICommandList);
     PluginCommands->MapAction(
         FJsonAsAssetCommands::Get().PluginAction,
@@ -157,56 +184,52 @@ void FJsonAsAssetModule::StartupModule() {
         FCanExecuteAction()
     );
 
-    // Register menus on startup
+    /* Register menus on startup */
     UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateRaw(this, &FJsonAsAssetModule::RegisterMenus));
 
-    // Check for export directory in settings
+    /* Check for export directory in settings */
     Settings = GetMutableDefault<UJsonAsAssetSettings>();
 	
-	if (Settings->ExportDirectory.Path.IsEmpty())
-	{
-	    const FText TitleText = LOCTEXT("JsonAsAssetNotificationTitle", "Missing Export Directory");
+	if (!IsSetup(Settings)) {
+	    const FText TitleText = LOCTEXT("JsonAsAssetNotificationTitle", "Setup JsonAsAsset Settings");
 	    const FText MessageText = LOCTEXT("JsonAsAssetNotificationText",
-	        "JsonAsAsset requires an export directory to handle references and locally check for files to import. "
-	        "The plugin will not function properly without this set.\n\nFor more information, please see the documentation for JsonAsAsset."
+	        "JsonAsAsset requires a proper setup to run properly.\n\nOpen the documentation for JsonAsAsset for more information."
 	    );
 
 	    FNotificationInfo Info(TitleText);
-	    
-	#if ENGINE_MAJOR_VERSION >= 5
-	    Info.SubText = MessageText;
-	#else
-	    Info.Text = MessageText;
-	#endif
-
-	    // Set up hyperlink for documentation
-	    Info.HyperlinkText = LOCTEXT("JsonAsAssetDocumentation", "Documentation");
-	    Info.Hyperlink = FSimpleDelegate::CreateStatic([]() { 
-	        const FString URL = "https://github.com/JsonAsAsset/JsonAsAsset";
-	        FPlatformProcess::LaunchURL(*URL, nullptr, nullptr); 
-	    });
-
-	    // Notification settings
+		SetNotificationSubText(Info, MessageText);
+		
+	    /* Notification settings */
 	    Info.bFireAndForget = false;
 	    Info.FadeOutDuration = 3.0f;
 	    Info.ExpireDuration = 0.0f;
 	    Info.bUseLargeFont = false;
 	    Info.bUseThrobber = false;
 
-	    // Add button to open plugin settings
+		Info.ButtonDetails.Add(
+			FNotificationButtonInfo(
+				LOCTEXT("OpenPluginSettings", "Open Documentation"),
+				FText::GetEmpty(),
+				FSimpleDelegate::CreateStatic([]() {
+					const FString URL = "https://github.com/JsonAsAsset/JsonAsAsset";
+					FPlatformProcess::LaunchURL(*URL, nullptr, nullptr); 
+				})
+			)
+		);
+
+		/* Add button to open plugin settings */
 	    Info.ButtonDetails.Add(
 	        FNotificationButtonInfo(
 	            LOCTEXT("OpenPluginSettings", "Open Settings"),
 	            FText::GetEmpty(),
 	            FSimpleDelegate::CreateStatic([]() {
-	                TSharedPtr<SNotificationItem> NotificationItem = ImportantNotificationPtr.Pin();
-	                if (NotificationItem.IsValid())
-	                {
+	                const TSharedPtr<SNotificationItem> NotificationItem = ImportantNotificationPtr.Pin();
+	                if (NotificationItem.IsValid()) {
 	                    NotificationItem->Fadeout();
 	                    ImportantNotificationPtr.Reset();
 	                }
 
-	                // Navigate to plugin settings
+	                /* Navigate to plugin settings */
 	                FModuleManager::LoadModuleChecked<ISettingsModule>("Settings")
 	                    .ShowViewer("Editor", "Plugins", "JsonAsAsset");
 	            })
@@ -217,7 +240,7 @@ void FJsonAsAssetModule::StartupModule() {
 	    ImportantNotificationPtr.Pin()->SetCompletionState(SNotificationItem::CS_Pending);
 	}
 
-    // Set up message log for JsonAsAsset
+    /* Set up message log for JsonAsAsset */
     {
         FMessageLogModule& MessageLogModule = FModuleManager::LoadModuleChecked<FMessageLogModule>("MessageLog");
         FMessageLogInitializationOptions InitOptions;
@@ -227,10 +250,8 @@ void FJsonAsAssetModule::StartupModule() {
         MessageLogModule.RegisterLogListing("JsonAsAsset", NSLOCTEXT("JsonAsAsset", "JsonAsAssetLogLabel", "JsonAsAsset"), InitOptions);
     }
 
-#if ENGINE_MAJOR_VERSION == 4
-	FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
-
-	{
+#if ENGINE_UE4
+	FLevelEditorModule& LevelEditorModule = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor"); {
     	TSharedPtr<FExtender> ToolbarExtender = MakeShareable(new FExtender);
     	ToolbarExtender->AddToolBarExtension("Settings", EExtensionHook::After, PluginCommands, FToolBarExtensionDelegate::CreateRaw(this, &FJsonAsAssetModule::AddToolbarExtension));
 
@@ -238,21 +259,25 @@ void FJsonAsAssetModule::StartupModule() {
 	}
 #endif
 
-    // Register custom class layout for settings
+    /* Register custom class layout for settings */
     FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
     PropertyModule.RegisterCustomClassLayout(UJsonAsAssetSettings::StaticClass()->GetFName(), FOnGetDetailCustomizationInstance::CreateStatic(&FJsonAsAssetSettingsDetails::MakeInstance));
+
+	Plugin = IPluginManager::Get().FindPlugin("JsonAsAsset");
+	
+	CheckForUpdates();
 }
 
 void FJsonAsAssetModule::ShutdownModule() {
-	// Unregister startup callback and tool menus
+	/* Unregister startup callback and tool menus */
 	UToolMenus::UnRegisterStartupCallback(this);
 	UToolMenus::UnregisterOwner(this);
 
-	// Shutdown the plugin style and unregister commands
+	/* Shutdown the plugin style and unregister commands */
 	FJsonAsAssetStyle::Shutdown();
 	FJsonAsAssetCommands::Unregister();
 
-	// Unregister message log listing if the module is loaded
+	/* Unregister message log listing if the module is loaded */
 	if (FModuleManager::Get().IsModuleLoaded("MessageLog")) {
 		FMessageLogModule& MessageLogModule = FModuleManager::GetModuleChecked<FMessageLogModule>("MessageLog");
 		MessageLogModule.UnregisterLogListing("JsonAsAsset");
@@ -267,12 +292,11 @@ void FJsonAsAssetModule::RegisterMenus() {
 	FToolMenuSection& Section = Menu->FindOrAddSection("JsonAsAsset");
 
 	TSharedPtr<FUICommandList> Actions = MakeShared<FUICommandList>();
+	Plugin = IPluginManager::Get().FindPlugin("JsonAsAsset");
 
-	TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin("JsonAsAsset");
-
-	FUIAction UIAction(
+	const FUIAction UIAction(
 		FExecuteAction::CreateRaw(this, &FJsonAsAssetModule::PluginButtonClicked),
-		FCanExecuteAction::CreateLambda([this]() { return !Settings->ExportDirectory.Path.IsEmpty(); })
+		FCanExecuteAction::CreateLambda([this]() { return IsSetup(Settings) && LocalFetchModule::IsSetup(Settings); })
 	);
 
 	/* JsonAsAsset Button */
@@ -283,9 +307,7 @@ void FJsonAsAssetModule::RegisterMenus() {
 		FText::GetEmpty(),
 		TAttribute<FSlateIcon>::Create(
 			TAttribute<FSlateIcon>::FGetter::CreateLambda([this]() -> FSlateIcon {
-				return Settings->ExportDirectory.Path.IsEmpty() 
-					? FSlateIcon(FJsonAsAssetStyle::Get().GetStyleSetName(), FName("JsonAsAsset.WarningLogo"))
-					: FSlateIcon(FJsonAsAssetStyle::Get().GetStyleSetName(), FName("JsonAsAsset.Logo"));
+				return FSlateIcon(FJsonAsAssetStyle::Get().GetStyleSetName(), FName("JsonAsAsset.Toolbar.Icon"));
 			})
 		),
 		EUserInterfaceActionType::Button
@@ -293,8 +315,8 @@ void FJsonAsAssetModule::RegisterMenus() {
 
 	PluginActionButtonEntry.ToolTip = TAttribute<FText>::Create(
 		TAttribute<FText>::FGetter::CreateLambda([this]() -> FText {
-			return Settings->ExportDirectory.Path.IsEmpty()
-				? FText::FromString("The button is disabled because no export directory has been specified. Please set an export directory in the plugin settings.")
+			return !IsSetup(Settings) || !LocalFetchModule::IsSetup(Settings)
+				? FText::FromString("The button is disabled due to your settings being improperly setup. Please modify your settings to execute JsonAsAsset.")
 				: LOCTEXT("JsonAsAsset_Tooltip", "Execute JsonAsAsset");
 		})
 	);
@@ -307,7 +329,7 @@ void FJsonAsAssetModule::RegisterMenus() {
 	Section.AddEntry(PluginActionButtonEntry);
 
 	/* Settings dropdown */
-	FToolMenuEntry PluginMenuEntry = FToolMenuEntry::InitComboButton(
+	const FToolMenuEntry PluginMenuEntry = FToolMenuEntry::InitComboButton(
 		"JsonAsAssetMenu",
 		FUIAction(),
 		FOnGetContent::CreateRaw(this, &FJsonAsAssetModule::CreateToolbarDropdown),
@@ -320,22 +342,38 @@ void FJsonAsAssetModule::RegisterMenus() {
 	Section.AddEntry(PluginMenuEntry);
 }
 
-#if ENGINE_MAJOR_VERSION == 4
-void FJsonAsAssetModule::AddToolbarExtension(FToolBarBuilder& Builder)
-{
-	TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin("JsonAsAsset");
+#if ENGINE_UE4
+void FJsonAsAssetModule::AddToolbarExtension(FToolBarBuilder& Builder) {
+	Builder.AddToolBarButton(
+		FUIAction(
+			FExecuteAction::CreateRaw(this, &FJsonAsAssetModule::PluginButtonClicked),
+			FCanExecuteAction(),
+			FGetActionCheckState(),
+			FIsActionButtonVisible::CreateLambda([this]() {
+				static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("Plugin.HideActions"));
+
+				if (CVar) {
+					return CVar && CVar->GetInt() == 0;
+				}
+
+				return true;
+			})
+		),
+		NAME_None,
+		FText::FromString(Plugin->GetDescriptor().VersionName),
+		LOCTEXT("JsonAsAssetExecuteAction", "Execute JsonAsAsset"),
+		FSlateIcon(FJsonAsAssetStyle::Get().GetStyleSetName(), FName("JsonAsAsset.Toolbar.Icon"))
+	);
 
 	Builder.AddComboButton(
 		FUIAction(
 			FExecuteAction(),
 			FCanExecuteAction(),
 			FGetActionCheckState(),
-			FIsActionButtonVisible::CreateLambda([this]()
-			{
+			FIsActionButtonVisible::CreateLambda([this]() {
 				static const auto CVar = IConsoleManager::Get().FindConsoleVariable(TEXT("Plugin.HideActions"));
 
-				if (CVar)
-				{
+				if (CVar) {
 					return CVar && CVar->GetInt() == 0;
 				}
 
@@ -344,48 +382,27 @@ void FJsonAsAssetModule::AddToolbarExtension(FToolBarBuilder& Builder)
 		),
 		FOnGetContent::CreateRaw(this, &FJsonAsAssetModule::CreateToolbarDropdown),
 		FText::FromString(Plugin->GetDescriptor().VersionName),
-		LOCTEXT("JsonAsAsset", "List of actions for JsonAsAsset"),
-		FSlateIcon(FJsonAsAssetStyle::Get().GetStyleSetName(), FName("JsonAsAsset.Logo"))
+		LOCTEXT("JsonAsAssetButtonTooltip", "Open JsonAsAsset Tool-bar"),
+		FSlateIcon(FJsonAsAssetStyle::Get().GetStyleSetName(), FName("JsonAsAsset.Toolbar.Icon")),
+		true
 	);
 }
 #endif
 
 TSharedRef<SWidget> FJsonAsAssetModule::CreateToolbarDropdown() {
-	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin("JsonAsAsset");
 	Settings = GetMutableDefault<UJsonAsAssetSettings>();
 
 	FMenuBuilder MenuBuilder(false, nullptr);
 	
 	MenuBuilder.BeginSection(
-		"JsonAsAssetSection", 
-		FText::Format(LOCTEXT("JsonToolsVersion", "JSON Tools v{0}"), FText::FromString(Plugin->GetDescriptor().VersionName))
+		"JsonAsAssetTopSection", 
+		FText::Format(LOCTEXT("JsonToolsVersion", "JsonAsAsset v{0}"), FText::FromString(Plugin->GetDescriptor().VersionName))
 	); {
 		MenuBuilder.AddSubMenu(
 			LOCTEXT("JsonAsAssetAssetTypesMenu", "Asset Types"),
 			LOCTEXT("JsonAsAssetAssetTypesMenuToolTip", "List of supported assets for JsonAsAsset"),
 			FNewMenuDelegate::CreateLambda([this](FMenuBuilder& InnerMenuBuilder) {
-				InnerMenuBuilder.BeginSection("JsonAsAssetSection", LOCTEXT("JsonAsAssetSection", "Asset Classes"));
-				{
-					for (FString& Asset : ImporterAcceptedTypes)
-					{
-						if (Asset == "") { // Separator
-							InnerMenuBuilder.AddSeparator();
-						}
-						
-						else {
-							UClass* Class = FindObject<UClass>(nullptr, *("/Script/Engine." + Asset));
-							FText Description = Class ? Class->GetToolTipText() : FText::FromString(Asset);
-
-							InnerMenuBuilder.AddMenuEntry(
-								FText::FromString(Asset),
-								Description,
-								FSlateIconFinder::FindCustomIconForClass(Class, TEXT("ClassThumbnail")),
-								FUIAction()
-							);
-						}
-					}
-				}
-				InnerMenuBuilder.EndSection();
+				SupportedAssetsDropdown(InnerMenuBuilder);
 			}),
 			false,
 			FSlateIcon(FAppStyle::Get().GetStyleSetName(), "LevelEditor.Tabs.Viewports")
@@ -394,86 +411,87 @@ TSharedRef<SWidget> FJsonAsAssetModule::CreateToolbarDropdown() {
 		MenuBuilder.AddMenuEntry(
 		LOCTEXT("JsonAsAssetDocumentationButton", "Documentation"),
 		LOCTEXT("JsonAsAssetDocumentationButtonTooltip", "View JsonAsAsset documentation"),
+#if ENGINE_UE5
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Documentation"),
-			FUIAction(
-				FExecuteAction::CreateLambda([this]() {
-					FString TheURL = "https://github.com/JsonAsAsset/JsonAsAsset";
-					FPlatformProcess::LaunchURL(*TheURL, nullptr, nullptr);
-				})
-			),
-			NAME_None
-		);
-
-#if ENGINE_MAJOR_VERSION == 4
-		MenuBuilder.AddMenuEntry(
-			LOCTEXT("JsonAsAssetActionButton", "JsonAsAsset"),
-			LOCTEXT("JsonAsAssetActionButtonTooltip", "Execute JsonAsAsset"),
-			FSlateIcon(FJsonAsAssetStyle::Get().GetStyleSetName(), "JsonAsAsset.Logo"),
-			FUIAction(
-				FExecuteAction::CreateRaw(this, &FJsonAsAssetModule::PluginButtonClicked),
-				FCanExecuteAction::CreateLambda([this]() {
-					const UJsonAsAssetSettings* Settings = GetDefault<UJsonAsAssetSettings>();
-
-					return !Settings->ExportDirectory.Path.IsEmpty();
-				})
-			),
-			NAME_None
-		);
+#else
+			FSlateIcon(FEditorStyle::GetStyleSetName(), "LevelEditor.BrowseDocumentation"),
 #endif
-
-		if (Settings->AssetSettings.bEnableAssetTools) {
-			MenuBuilder.AddSubMenu(
-				LOCTEXT("JsonAsAssetAssetToolsMenu", "Open Asset Tools"),
-				LOCTEXT("JsonAsAssetAssetToolsMenuToolTip", "Extra functionality / tools to do very specific actions with assets."),
-				FNewMenuDelegate::CreateLambda([this](FMenuBuilder& InnerMenuBuilder) {
-					InnerMenuBuilder.BeginSection("JsonAsAssetSection", LOCTEXT("JsonAsAssetSection", "Asset Tools"));
-					{
-						InnerMenuBuilder.AddMenuEntry(
-							LOCTEXT("JsonAsAssetAssetToolsCollisionExButton", "Import Folder Collision Convex"),
-							LOCTEXT("JsonAsAssetAssetToolsButtonTooltip", "Imports convex collision data from a folder of JSON files and applies it to the corresponding assets."),
-							FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.BspMode"),
-
-							FUIAction(
-								FExecuteAction::CreateRaw(this, &FJsonAsAssetModule::ImportConvexCollision),
-								FCanExecuteAction::CreateLambda([this]() {
-									return true;
-								})
-							),
-							NAME_None
-						);
-					}
-					InnerMenuBuilder.EndSection();
-				}),
-				false,
-				FSlateIcon(FAppStyle::Get().GetStyleSetName(), "ProjectSettings.TabIcon")
-			);
-		}
+			FUIAction(
+				FExecuteAction::CreateLambda([this] {
+					const FString URL = "https://github.com/JsonAsAsset/JsonAsAsset";
+					FPlatformProcess::LaunchURL(*URL, nullptr, nullptr);
+				})
+			),
+			NAME_None
+		);
 	}
+
+	/* I have to think about this again before adding to production */
+	/*MenuBuilder.AddMenuEntry(
+		FText::FromString("Import Folder of JSON Files"),
+		FText::FromString(""),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.BspMode"),
+
+		FUIAction(
+			FExecuteAction::CreateLambda([this] {
+				const FString SelectedFolder = OpenFolderDialog(TEXT("Select Folder Containing JSON Files"), TEXT(""));
+
+				if (SelectedFolder.IsEmpty()) {
+					return;
+				}
+
+				FMessageLogModule& MessageLogModule = FModuleManager::GetModuleChecked<FMessageLogModule>("MessageLog");
+				const TSharedRef<IMessageLogListing> LogListing = MessageLogModule.GetLogListing("JsonAsAsset");
+				LogListing->ClearMessages();
+
+				TArray<FString> JSONFiles;
+				IFileManager::Get().FindFilesRecursive(JSONFiles, *SelectedFolder, TEXT("*.json"), true, false, false);
+
+				for (const FString& File : JSONFiles) {
+					IImporter::ImportReference(File);
+				}
+			})
+		),
+		NAME_None
+	);*/
 
 	MenuBuilder.EndSection();
 
-	bActionRequired =
-		Settings->ExportDirectory.Path.IsEmpty() //||..
-		;
+	bActionRequired = !IsSetup(Settings) || !LocalFetchModule::IsSetup(Settings);
 
 	if (bActionRequired) {
-		MenuBuilder.BeginSection("JsonAsAssetActionRequired", FText::FromString("Action Required"));
-		{
-			// Export Directory Missing
-			if (Settings->ExportDirectory.Path.IsEmpty())
+		MenuBuilder.BeginSection("JsonAsAssetActionRequired", FText::FromString("Action Required")); {
+			TArray<FString> RequiredActions;
+
+			/* Export Directory Missing */
+			if (!IsSetup(Settings)) {
+				RequiredActions.Add("Missing Export Directory");
+			}
+			if (Settings->bEnableLocalFetch) {
+				TArray<FString> LocalFetchRequiredActions;
+				
+				if (!LocalFetchModule::IsSetup(Settings, LocalFetchRequiredActions)) {
+					for (FString RequiredAction : LocalFetchRequiredActions) {
+						RequiredActions.Add(RequiredAction);
+					}
+				}
+			}
+
+			for (FString Action : RequiredActions) {
 				MenuBuilder.AddMenuEntry(
-					LOCTEXT("JsonAsAssetActionRequiredButton", "Missing Export Directory"),
-					LOCTEXT("JsonAsAssetActionRequiredButtonTooltip", "Update the export directory in JsonAsAsset's plugin settings."),
+					FText::FromString(Action),
+					FText::FromString("Open JsonAsAsset Settings"),
 					FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.WarningWithColor"),
 					FUIAction(
 						FExecuteAction::CreateLambda([this]() {
-							// Send user to plugin
+							/* Send user to plugin */
 							FModuleManager::LoadModuleChecked<ISettingsModule>("Settings")
 								.ShowViewer("Editor", "Plugins", "JsonAsAsset");
 						})
 					),
 					NAME_None
 				);
+			}
 		}
 		MenuBuilder.EndSection();
 	}
@@ -481,14 +499,17 @@ TSharedRef<SWidget> FJsonAsAssetModule::CreateToolbarDropdown() {
 	CreateLocalFetchDropdown(MenuBuilder);
 
 	MenuBuilder.AddSeparator();
-
 	MenuBuilder.AddMenuEntry(
 		LOCTEXT("JsonAsAssetSettingsButton", "Open Plugin Settings"),
 		LOCTEXT("JsonAsAssetSettingsButtonTooltip", "Navigate to the JsonAsAsset plugin settings"),
+#if ENGINE_UE5
 		FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Settings"),
+#else
+		FSlateIcon(FEditorStyle::GetStyleSetName(), "ProjectSettings.TabIcon"),
+#endif
 		FUIAction(
 			FExecuteAction::CreateLambda([this]() {
-				// Send user to plugin settings
+				/* Send user to plugin settings */
 				FModuleManager::LoadModuleChecked<ISettingsModule>("Settings")
 					.ShowViewer("Editor", "Plugins", "JsonAsAsset");
 			})
@@ -508,43 +529,13 @@ TSharedRef<SWidget> FJsonAsAssetModule::CreateToolbarDropdown() {
 		NAME_None
 	);
 
-	MenuBuilder.AddSeparator();
-	
-	MenuBuilder.AddMenuEntry(
-		LOCTEXT("JsonAsAssetAboutButton", "About JsonAsAsset"),
-		LOCTEXT("JsonAsAssetAboutButtonTooltip", "More information about JsonAsAsset"),
-		FSlateIcon(FAppStyle::GetAppStyleSetName(), "MessageLog.Action"),
-		FUIAction(
-			FExecuteAction::CreateLambda([this]() {
-#if ENGINE_MAJOR_VERSION > 4
-				TSharedPtr<SWindow> AboutWindow =
-					SNew(SWindow)
-					.Title(LOCTEXT("AboutJsonAsAsset", "About JsonAsAsset"))
-					.ClientSize(FVector2D(720.f, 170.f))
-					.SupportsMaximize(false).SupportsMinimize(false)
-					.SizingRule(ESizingRule::FixedSize)
-					[
-						SNew(SAboutJsonAsAsset)
-					];
-
-				IMainFrameModule& MainFrame = FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
-				TSharedPtr<SWindow> ParentWindow = MainFrame.GetParentWindow();
-
-				if (ParentWindow.IsValid())
-					FSlateApplication::Get().AddModalWindow(AboutWindow.ToSharedRef(), ParentWindow.ToSharedRef());
-				else FSlateApplication::Get().AddWindow(AboutWindow.ToSharedRef());
-#endif
-			})
-		),
-		NAME_None
-	);
+	CreateVersioningDropdown(MenuBuilder);
 
 	return MenuBuilder.MakeWidget();
 }
 
-void FJsonAsAssetModule::CreateLocalFetchDropdown(FMenuBuilder MenuBuilder) const
-{
-	// Local Fetch must be enabled, and if there is an action required, don't create Local Fetch's dropdown
+void FJsonAsAssetModule::CreateLocalFetchDropdown(FMenuBuilder MenuBuilder) const {
+	/* Local Fetch must be enabled, and if there is an action required, don't create Local Fetch's dropdown */
 	if (!Settings->bEnableLocalFetch || bActionRequired) {
 		return;
 	}
@@ -554,29 +545,7 @@ void FJsonAsAssetModule::CreateLocalFetchDropdown(FMenuBuilder MenuBuilder) cons
 		LOCTEXT("JsonAsAssetLocalFetchTypesMenu", "Asset Types"),
 		LOCTEXT("JsonAsAssetLocalFetchTypesMenuToolTip", "List of supported classes that can be locally fetched using the API"),
 		FNewMenuDelegate::CreateLambda([this](FMenuBuilder& InnerMenuBuilder) {
-			InnerMenuBuilder.BeginSection("JsonAsAssetSection", LOCTEXT("JsonAsAssetSection", "Asset Classes"));
-			{
-				TArray<FString> AcceptedTypes = LocalFetchAcceptedTypes;
-
-				for (FString& Asset : AcceptedTypes) {
-					if (Asset == "") { // Separator
-						InnerMenuBuilder.AddSeparator();
-					}
-					
-					else {
-						UClass* Class = FindObject<UClass>(nullptr, *("/Script/Engine." + Asset));
-						FText Description = Class ? Class->GetToolTipText() : FText::FromString(Asset);
-						
-						InnerMenuBuilder.AddMenuEntry(
-							FText::FromString(Asset),
-							Description,
-							FSlateIconFinder::FindCustomIconForClass(Class, TEXT("ClassThumbnail")),
-							FUIAction()
-						);
-					}
-				}
-			}
-			InnerMenuBuilder.EndSection();
+			SupportedAssetsDropdown(InnerMenuBuilder, true);
 		}),
 		false,
 		FSlateIcon()
@@ -588,10 +557,9 @@ void FJsonAsAssetModule::CreateLocalFetchDropdown(FMenuBuilder MenuBuilder) cons
 		FNewMenuDelegate::CreateLambda([this](FMenuBuilder& InnerMenuBuilder) {
 			InnerMenuBuilder.BeginSection("JsonAsAssetSection", LOCTEXT("JsonAsAssetSection", "Console"));
 			{
-				bool bIsLocalFetchRunning = IsProcessRunning("LocalFetch.exe");
+				const bool bIsLocalFetchRunning = IsProcessRunning("LocalFetch.exe");
 
-				if (bIsLocalFetchRunning)
-				{
+				if (bIsLocalFetchRunning) {
 					InnerMenuBuilder.AddMenuEntry(
 						FText::FromString("Restart Local Fetch (.EXE)"),
 						FText::FromString(""),
@@ -620,16 +588,14 @@ void FJsonAsAssetModule::CreateLocalFetchDropdown(FMenuBuilder MenuBuilder) cons
 							})
 						)
 					);
-				}
-				else
-				{
+				} else {
 					InnerMenuBuilder.AddMenuEntry(
 						FText::FromString("Execute Local Fetch (.EXE)"),
 						FText::FromString(""),
 						FSlateIcon(),
 						FUIAction(
 							FExecuteAction::CreateLambda([this]() {
-								TSharedPtr<SNotificationItem> NotificationItem = LocalFetchNotificationPtr.Pin();
+								const TSharedPtr<SNotificationItem> NotificationItem = LocalFetchNotificationPtr.Pin();
 
 								if (NotificationItem.IsValid()) {
 									NotificationItem->SetFadeOutDuration(0.001);
@@ -651,100 +617,300 @@ void FJsonAsAssetModule::CreateLocalFetchDropdown(FMenuBuilder MenuBuilder) cons
 		false,
 		FSlateIcon()
 	);
+
+	/* Left just in case we want to make it a setting again */
+	if (true) {
+		MenuBuilder.AddSeparator();
+		MenuBuilder.AddSubMenu(
+			LOCTEXT("JsonAsAssetAssetToolsMenu", "Fetch Tools"),
+			LOCTEXT("JsonAsAssetAssetToolsMenuToolTip", "Extra tools to use with Local Fetch"),
+			FNewMenuDelegate::CreateLambda([this](FMenuBuilder& InnerMenuBuilder) {
+				InnerMenuBuilder.BeginSection("JsonAsAssetToolsSection", LOCTEXT("JsonAsAssetToolsSection", "Tools"));
+				{
+					InnerMenuBuilder.AddMenuEntry(
+						LOCTEXT("JsonAsAssetAssetToolsCollisionExButton", "Import Static Mesh Properties from Local Fetch"),
+						LOCTEXT("JsonAsAssetAssetToolsButtonTooltip", "Imports collision, properties and more using Local Fetch and applies it to the corresponding assets in the content browser folder."),
+						FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.BspMode"),
+
+						FUIAction(
+							FExecuteAction::CreateStatic(&FToolConvexCollision::Execute),
+							FCanExecuteAction::CreateLambda([this]() {
+								return IsProcessRunning("LocalFetch.exe");
+							})
+						),
+						NAME_None
+					);
+
+					InnerMenuBuilder.AddMenuEntry(
+						LOCTEXT("JsonAsAssetAssetToolsAnimationDataButton", "Import Animation Data from Local Fetch"),
+						LOCTEXT("JsonAsAssetAssetToolsAnimationDataButtonTooltip", "Imports animation data using Local Fetch and applies it to the corresponding assets in the content browser folder."),
+						FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.BspMode"),
+
+						FUIAction(
+							FExecuteAction::CreateStatic(&FToolAnimationData::Execute),
+							FCanExecuteAction::CreateLambda([this]() {
+								return IsProcessRunning("LocalFetch.exe");
+							})
+						),
+						NAME_None
+					);
+					
+					InnerMenuBuilder.AddMenuEntry(
+						LOCTEXT("JsonAsAssetAssetToolsClearImportDataButton", "Clear Import Data"),
+						LOCTEXT("JsonAsAssetAssetToolClearImportDataButtonTooltip", ""),
+						FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.BspMode"),
+
+						FUIAction(
+							FExecuteAction::CreateStatic(&FToolClearImportData::Execute),
+							FCanExecuteAction::CreateLambda([this]() {
+								return IsProcessRunning("LocalFetch.exe");
+							})
+						),
+						NAME_None
+					);
+				}
+				InnerMenuBuilder.EndSection();
+			}),
+			false
+		);
+	}
+	
 	MenuBuilder.EndSection();
 }
 
-void FJsonAsAssetModule::ImportConvexCollision() const
-{
-	TArray<FAssetData> AssetDataList = GetAssetsInSelectedFolder();
-	TArray<FString> OutFolderNames = OpenFolderDialog("Select a folder for JSON files");
+void FJsonAsAssetModule::CreateVersioningDropdown(FMenuBuilder MenuBuilder) const {
+	if (Versioning.bLatestVersion || !Versioning.bIsValid) {
+		MenuBuilder.AddSeparator();
+		
+		CreateLastDropdown(MenuBuilder);
 
-	if (OutFolderNames.Num() == 0 || AssetDataList.Num() == 0) {
-		// Exit if no folder is selected
 		return;
 	}
+	
+	MenuBuilder.BeginSection("JsonAsAssetVersioningSection", FText::FromString("Versioning"));
+	
+	FText Text, Tooltip;
+	FSlateIcon Icon =
+#if ENGINE_UE5
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "Blueprint.CompileStatus.Background", NAME_None);
+#else
+		FSlateIcon(FEditorStyle::GetStyleSetName(), "MainFrame.CreditsUnrealEd");
+#endif
 
-	for (const FAssetData& AssetData : AssetDataList) {
-		if (UStaticMesh* StaticMesh = Cast<UStaticMesh>(AssetData.GetAsset())) {
-			StaticMesh->ReleaseResources();
-			StaticMesh->Modify(true);
+	/* A new release is available */
+	if (Versioning.bNewVersionAvailable) {
+		Text = FText::FromString("New Version Available");
+		
+		Tooltip = FText::FromString("Update your installation to version " + Versioning.VersionName + " of JsonAsAsset");
 
-			// Get the name of the static mesh
-			FString StaticMeshName = StaticMesh->GetName();
+		Icon = FSlateIcon(FAppStyle::GetAppStyleSetName(), "Cascade.AddLODBeforeCurrent.Small");
+	} else if (Versioning.bFutureVersion) {
+		Text = FText::FromString("Developmental Build");
+		
+		Tooltip = FText::FromString("You are currently running a developmental build of JsonAsAsset");
+		
+	} else {
+		Text = FText::FromString("Latest Version");
+		
+		Tooltip = FText::FromString("You are currently using the latest version of JsonAsAsset");
+	}
 
-			FString JsonFileName = StaticMeshName + ".json";
-			FString JsonFilePath = OutFolderNames[0] / JsonFileName;
+	MenuBuilder.AddMenuEntry(
+		Text,
+		Tooltip,
+		Icon,
+		FUIAction(
+			FExecuteAction::CreateLambda([this]() {
+				if (Versioning.bNewVersionAvailable) {
+					FPlatformProcess::LaunchURL(*Versioning.HTMLUrl, nullptr, nullptr);
+				}
+			})
+		),
+		NAME_None
+	);
+	
+	MenuBuilder.EndSection();
+}
 
-			if (FPaths::FileExists(JsonFilePath)) {
-				UE_LOG(LogTemp, Log, TEXT("Found JSON file for Static Mesh: %s"), *JsonFilePath);
+void FJsonAsAssetModule::CreateLastDropdown(FMenuBuilder MenuBuilder) const {
+	MenuBuilder.AddMenuEntry(
+		LOCTEXT("JsonAsAssetAboutButton", "About JsonAsAsset"),
+		LOCTEXT("JsonAsAssetAboutButtonTooltip", "More information about JsonAsAsset"),
+		FSlateIcon(FAppStyle::GetAppStyleSetName(), "MessageLog.Action"),
+		FUIAction(
+			FExecuteAction::CreateLambda([this]() {
+#if ENGINE_UE5
+				const TSharedPtr<SWindow> AboutWindow = SNew(SWindow)
+					.Title(LOCTEXT("AboutJsonAsAsset", "About JsonAsAsset"))
+					.ClientSize(FVector2D(720.f, 170.f))
+					.SupportsMaximize(false).SupportsMinimize(false)
+					.SizingRule(ESizingRule::FixedSize)
+					[
+						SNew(SAboutJsonAsAsset)
+					];
 
-				FString ContentBefore;
-				if (FFileHelper::LoadFileToString(ContentBefore, *JsonFilePath)) {
-					FString Content = FString(TEXT("{\"data\": "));
-					Content.Append(ContentBefore);
-					Content.Append(FString("}"));
+				const IMainFrameModule& MainFrame = FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
+				const TSharedPtr<SWindow> ParentWindow = MainFrame.GetParentWindow();
 
-					TSharedPtr<FJsonObject> JsonParsed;
-					const TSharedRef<TJsonReader<TCHAR>> JsonReader = TJsonReaderFactory<TCHAR>::Create(Content);
+				if (ParentWindow.IsValid())
+					FSlateApplication::Get().AddModalWindow(AboutWindow.ToSharedRef(), ParentWindow.ToSharedRef());
+				else FSlateApplication::Get().AddWindow(AboutWindow.ToSharedRef());
+#endif
+			})
+		),
+		NAME_None
+	);
+}
 
-					if (FJsonSerializer::Deserialize(JsonReader, JsonParsed)) {
-						const TArray<TSharedPtr<FJsonValue>> DataObjects = JsonParsed->GetArrayField(TEXT("data"));
+void FJsonAsAssetModule::SupportedAssetsDropdown(FMenuBuilder& InnerMenuBuilder, const bool bIsLocalFetch) {
+	TMap<FString, TArray<FString>> CategoriesAndTypes = ImporterTemplatedTypes;
 
-						for (const TSharedPtr<FJsonValue>& DataObject : DataObjects) {
-							if (!DataObject.IsValid() || !DataObject->AsObject().IsValid()) {
-								continue;
-							}
+	/* Add asset types from the factory registry */
+	for (auto Pair : IImporter::GetFactoryRegistry()) {
+		if (CategoriesAndTypes.Find(Pair.Value.Category)) {
+			CategoriesAndTypes[Pair.Value.Category].Append(Pair.Key);
+		}
+		else {
+			const UJsonAsAssetSettings* SettingsReferenced = GetDefault<UJsonAsAssetSettings>();
 
-							TSharedPtr<FJsonObject> JsonObject = DataObject->AsObject();
-							FString TypeValue;
+			if (!SettingsReferenced->bEnableExperiments) {
+				bool bIsExperimentalAssetType = false;
 
-							// Check if the "Type" field exists and matches "BodySetup"
-							if (JsonObject->TryGetStringField(TEXT("Type"), TypeValue) && TypeValue == "BodySetup") {
-								// Check for "Class" with value "UScriptClass'BodySetup'"
-								FString ClassValue;
-								if (JsonObject->TryGetStringField(TEXT("Class"), ClassValue) && ClassValue == "UScriptClass'BodySetup'") {
-									// Navigate to "Properties"
-									TSharedPtr<FJsonObject> PropertiesObject = JsonObject->GetObjectField(TEXT("Properties"));
-									if (PropertiesObject.IsValid()) {
-										// Navigate to "AggGeom"
-										TSharedPtr<FJsonObject> AggGeomObject = PropertiesObject->GetObjectField(TEXT("AggGeom"));
-										if (AggGeomObject.IsValid()) {
-											FKAggregateGeom AggGeom;
-
-											GObjectSerializer->DeserializeObjectProperties(PropertiesObject, StaticMesh->GetBodySetup());
-											StaticMesh->GetBodySetup()->CollisionTraceFlag = ECollisionTraceFlag::CTF_UseDefault;
-											StaticMesh->MarkPackageDirty();
-											StaticMesh->GetBodySetup()->PostEditChange();
-											StaticMesh->Modify(true);
-
-											// Notification
-											AppendNotification(
-												FText::FromString("Imported Convex Collision: " + StaticMeshName),
-												FText::FromString(StaticMeshName),
-												3.5f,
-												FAppStyle::GetBrush("PhysicsAssetEditor.EnableCollision.Small"),
-												SNotificationItem::CS_Success,
-												false,
-												310.0f
-											);
-										}
-									}
-								}
-							}
-						}
+				for (FString ExperimentalAssetType : ExperimentalAssetTypes) {
+					if (Pair.Key.Contains(ExperimentalAssetType)) {
+						bIsExperimentalAssetType = true;
 					}
+				}
+
+				if (bIsExperimentalAssetType) {
+					continue;
 				}
 			}
 
-			// Notify the editor about the changes
-			StaticMesh->GetBodySetup()->InvalidatePhysicsData();
-			StaticMesh->GetBodySetup()->CreatePhysicsMeshes();
-
-			StaticMesh->MarkPackageDirty();
-			StaticMesh->GetBodySetup()->PostEditChange();
-			StaticMesh->PostLoad();
+			CategoriesAndTypes.Add(Pair.Value.Category, Pair.Key);
 		}
 	}
+
+	/* Sort categories by alphabetical order */
+	TArray<TPair<FString, TArray<FString>>> SortedCategoryPairs;
+	for (const TPair<FString, TArray<FString>>& Pair : CategoriesAndTypes) {
+		SortedCategoryPairs.Add(Pair);
+	}
+
+	SortedCategoryPairs.Sort([](const TPair<FString, TArray<FString>>& A, const TPair<FString, TArray<FString>>& B) {
+		return A.Key < B.Key;
+	});
+
+	/* Sort asset types by alphabetical order */
+	for (TPair<FString, TArray<FString>>& CategoryPair : CategoriesAndTypes) {
+		CategoryPair.Value.Sort([](const FString& A, const FString& B) {
+			return A < B;
+		});
+	}
+
+	/* Go through each pair and add the entries */
+	for (const TPair<FString, TArray<FString>>& Pair : SortedCategoryPairs) {
+		FString Category = Pair.Key;
+		TArray<FString> AssetTypes = Pair.Value;
+					
+		InnerMenuBuilder.BeginSection(FName(*Category), FText::FromString(Category));
+
+		for (const FString& AssetType : AssetTypes) {
+			if (bIsLocalFetch) {
+				if (!IImporter::CanImportWithLocalFetch(AssetType)) {
+					continue;
+				}
+			}
+			const UClass* Class = FindObject<UClass>(nullptr, *("/Script/Engine." + AssetType));
+			FText Description = Class ? Class->GetToolTipText() : FText::FromString(AssetType);
+
+			InnerMenuBuilder.AddMenuEntry(
+				FText::FromString(AssetType),
+				Description,
+				FSlateIconFinder::FindCustomIconForClass(Class, TEXT("ClassThumbnail")),
+				FUIAction(
+					FExecuteAction::CreateLambda([] {
+					})
+				)
+			);
+		}
+
+		InnerMenuBuilder.EndSection();
+	}
+}
+
+void FJsonAsAssetModule::CheckForUpdates() {
+	if (IsRunningCommandlet() || IsRunningDedicatedServer()) {
+		return;
+	}
+	
+	Versioning.SetValid(false);
+
+	FHttpModule* HttpModule = &FHttpModule::Get();
+
+#if ENGINE_UE5
+	const TSharedRef<IHttpRequest> Request = HttpModule->CreateRequest();
+#else
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = HttpModule->CreateRequest();
+#endif
+
+	Request->SetURL(TEXT("https://api.github.com/repos/JsonAsAsset/JsonAsAsset/releases/latest"));
+	Request->SetVerb(TEXT("GET"));
+	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	Request->SetHeader(TEXT("User-Agent"), TEXT("JsonAsAsset"));
+
+	Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, const FHttpResponsePtr& Resp, const bool bSuccess) {
+		/* Check if the request was successful and the response is valid */
+		if (!bSuccess || !Resp.IsValid()) {
+			UE_LOG(LogTemp, Warning, TEXT("HTTP request failed or no internet connection."));
+        		
+			return;
+		}
+
+		const FString ResponseString = Resp->GetContentAsString();
+
+		/* Deserialize the JSON response */
+		TSharedPtr<FJsonObject> JsonObject;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ResponseString);
+		if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid()) {
+			return;
+		}
+
+		/* It must have the name property */
+		if (!JsonObject->HasField(TEXT("name"))) {
+			return;
+		}
+
+		const FString VersionName = JsonObject->GetStringField(TEXT("name"));
+		const FString CurrentVersionName = Plugin->GetDescriptor().VersionName;
+
+		const int LatestVersion = ConvertVersionStringToInt(VersionName);
+		const int CurrentVersion = ConvertVersionStringToInt(Plugin->GetDescriptor().VersionName);
+
+		Versioning = FJsonAsAssetVersioning(CurrentVersion, LatestVersion, JsonObject->GetStringField(TEXT("html_url")), VersionName, CurrentVersionName);
+		Versioning.SetValid(true);
+	});
+	
+#if ENGINE_UE5
+	const TSharedPtr<IHttpResponse> Response = FRemoteUtilities::ExecuteRequestSync(Request);
+#else
+	const TSharedPtr<IHttpResponse, ESPMode::ThreadSafe> Response = FRemoteUtilities::ExecuteRequestSync(Request);
+#endif
+
+    Request->ProcessRequest();
+}
+
+bool FJsonAsAssetModule::IsSetup(const UJsonAsAssetSettings* SettingsReference, TArray<FString>& Params) {
+	if (SettingsReference->ExportDirectory.Path.IsEmpty()) {
+		Params.Add("Export Directory is missing");
+	}
+
+	return !SettingsReference->ExportDirectory.Path.IsEmpty();
+}
+
+bool FJsonAsAssetModule::IsSetup(const UJsonAsAssetSettings* SettingsReference) {
+	TArray<FString> Params;
+	return IsSetup(SettingsReference, Params);
 }
 
 #undef LOCTEXT_NAMESPACE

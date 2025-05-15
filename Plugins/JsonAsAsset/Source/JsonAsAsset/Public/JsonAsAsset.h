@@ -1,43 +1,50 @@
-// Copyright JAA Contributors 2024-2025
+/* Copyright JsonAsAsset Contributors 2024-2025 */
 
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Interfaces/IPluginManager.h"
+#include "Modules/Versioning.h"
 #include "Utilities/Serializers/PropertyUtilities.h"
+#include "Utilities/Compatibility.h"
 
-#if ENGINE_MAJOR_VERSION == 4
+#if ENGINE_UE4
 #include "Modules/ModuleInterface.h"
 #endif
 
 class UJsonAsAssetSettings;
 
-class FJsonAsAssetModule : public IModuleInterface
-{
+class FJsonAsAssetModule : public IModuleInterface {
 public:
     virtual void StartupModule() override;
     virtual void ShutdownModule() override;
 
-    // Executes File Dialog
+    /* Execute File Dialog */
     void PluginButtonClicked();
 
-private:
-    UPROPERTY()
-    UPropertySerializer* PropertySerializer;
+    FJsonAsAssetVersioning Versioning;
+    void CheckForUpdates();
 
-    UPROPERTY()
-    UObjectSerializer* GObjectSerializer;
-    
+    static bool IsSetup(const UJsonAsAssetSettings* SettingsReference, TArray<FString>& Params);
+    static bool IsSetup(const UJsonAsAssetSettings* SettingsReference);
+
+private:
     void RegisterMenus();
 
     TSharedPtr<FUICommandList> PluginCommands;
     TSharedRef<SWidget> CreateToolbarDropdown();
     void CreateLocalFetchDropdown(FMenuBuilder MenuBuilder) const;
-    void ImportConvexCollision() const;
+    void CreateVersioningDropdown(FMenuBuilder MenuBuilder) const;
+    void CreateLastDropdown(FMenuBuilder MenuBuilder) const;
+
+    static void SupportedAssetsDropdown(FMenuBuilder& InnerMenuBuilder, bool bIsLocalFetch = false);
 
     bool bActionRequired = false;
     UJsonAsAssetSettings* Settings = nullptr;
 
-#if ENGINE_MAJOR_VERSION == 4
+    TSharedPtr<IPlugin> Plugin;
+
+#if ENGINE_UE4
     void AddToolbarExtension(FToolBarBuilder& Builder);
 #endif
 };

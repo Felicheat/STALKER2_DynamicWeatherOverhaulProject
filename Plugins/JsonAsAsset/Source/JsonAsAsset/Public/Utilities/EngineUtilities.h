@@ -1,19 +1,30 @@
-﻿// Copyright JAA Contributors 2024-2025
+﻿/* Copyright JsonAsAsset Contributors 2024-2025 */
 
 #pragma once
 
 #include "Framework/Notifications/NotificationManager.h"
 #include "Widgets/Notifications/SNotificationList.h"
-#include "AssetRegistry/AssetRegistryModule.h"
+#include "Utilities/Serializers/PropertyUtilities.h"
+#include "Windows/WindowsPlatformApplicationMisc.h"
+#include "Utilities/Serializers/ObjectUtilities.h"
+#include "Settings/JsonAsAssetSettings.h"
 #include "Interfaces/IMainFrameModule.h"
 #include "IContentBrowserSingleton.h"
 #include "Windows/WindowsHWrapper.h"
+#include "Interfaces/IHttpRequest.h"
 #include "DesktopPlatformModule.h"
 #include "ContentBrowserModule.h"
 #include "IDesktopPlatform.h"
+#include "RemoteUtilities.h"
 #include "AssetUtilities.h"
+#include "PluginUtils.h"
+#include "HttpModule.h"
 #include "TlHelp32.h"
 #include "Json.h"
+
+#if (ENGINE_MAJOR_VERSION != 4 || ENGINE_MINOR_VERSION < 27)
+#include "Engine/DeveloperSettings.h"
+#endif
 
 inline bool HandlePackageCreation(UObject* Asset, UPackage* Package) {
 	FAssetRegistryModule::AssetCreated(Asset);
@@ -25,7 +36,7 @@ inline bool HandlePackageCreation(UObject* Asset, UPackage* Package) {
 	
 	Package->FullyLoad();
 
-	// Browse to newly added Asset
+	/* Browse to newly added Asset */
 	const TArray<FAssetData>& Assets = {Asset};
 	const FContentBrowserModule& ContentBrowserModule = FModuleManager::Get().LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
 	ContentBrowserModule.Get().SyncBrowserToAssets(Assets);
@@ -39,25 +50,25 @@ inline bool HandlePackageCreation(UObject* Asset, UPackage* Package) {
  * @return Selected Asset
  */
 template <typename T>
-T* GetSelectedAsset(bool SupressErrors = false) {
+T* GetSelectedAsset(const bool SuppressErrors = false, FString OptionalAssetNameCheck = "") {
 	const FContentBrowserModule& ContentBrowserModule = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
 	TArray<FAssetData> SelectedAssets;
 	ContentBrowserModule.Get().GetSelectedAssets(SelectedAssets);
 
 	if (SelectedAssets.Num() == 0) {
-		if (SupressErrors == true)
-		{
+		if (SuppressErrors == true) {
 			return nullptr;
 		}
 		
 		GLog->Log("JsonAsAsset: [GetSelectedAsset] None selected, returning nullptr.");
 
 		const FText DialogText = FText::Format(
-			FText::FromString(TEXT("Importing an asset of type '{0}' requires a base asset selected. Select one in your content browser.")),
+			FText::FromString(TEXT("Importing an asset of type '{0}' requires a base asset selected to modify. Select one in your content browser.")),
 			FText::FromString(T::StaticClass()->GetName())
 		);
 
 		FMessageDialog::Open(EAppMsgType::Ok, DialogText);
+		
 		return nullptr;
 	}
 
@@ -65,8 +76,7 @@ T* GetSelectedAsset(bool SupressErrors = false) {
 	T* CastedAsset = Cast<T>(SelectedAsset);
 
 	if (!CastedAsset) {
-		if (SupressErrors == true)
-		{
+		if (SuppressErrors == true) {
 			return nullptr;
 		}
 		
@@ -78,20 +88,23 @@ T* GetSelectedAsset(bool SupressErrors = false) {
 		);
 
 		FMessageDialog::Open(EAppMsgType::Ok, DialogText);
+		
 		return nullptr;
+	}
+
+	if (CastedAsset && OptionalAssetNameCheck != "" && !CastedAsset->GetName().Equals(OptionalAssetNameCheck)) {
+		CastedAsset = nullptr;
 	}
 
 	return CastedAsset;
 }
 
 template <typename TEnum> 
-TEnum StringToEnum(const FString& StringValue)
-{
+TEnum StringToEnum(const FString& StringValue) {
 	return StaticEnum<TEnum>() ? static_cast<TEnum>(StaticEnum<TEnum>()->GetValueByNameString(StringValue)) : TEnum();
 }
 
-inline TSharedPtr<FJsonObject> FindExport(const TSharedPtr<FJsonObject>& Export, const TArray<TSharedPtr<FJsonValue>>& File)
-{
+inline TSharedPtr<FJsonObject> FindExport(const TSharedPtr<FJsonObject>& Export, const TArray<TSharedPtr<FJsonValue>>& File) {
 	FString string_int; Export->GetStringField(TEXT("ObjectPath")).Split(".", nullptr, &string_int);
 	
 	return File[FCString::Atoi(*string_int)]->AsObject();
@@ -99,52 +112,66 @@ inline TSharedPtr<FJsonObject> FindExport(const TSharedPtr<FJsonObject>& Export,
 
 inline void SpawnPrompt(const FString& Title, const FString& Text) {
 	FText DialogTitle = FText::FromString(Title);
-	FText DialogMessage = FText::FromString(Text);
+	const FText DialogMessage = FText::FromString(Text);
 
 	FMessageDialog::Open(EAppMsgType::Ok, DialogMessage);
 }
 
-// Gets all assets in selected folder
-inline TArray<FAssetData> GetAssetsInSelectedFolder()
-{
+inline auto SpawnYesNoPrompt = [](const FString& Title, const FString& Text, const TFunction<void(bool)>& OnResponse) {
+	const FText DialogTitle = FText::FromString(Title);
+	const FText DialogMessage = FText::FromString(Text);
+
+	const EAppReturnType::Type Response = FMessageDialog::Open(EAppMsgType::YesNo, DialogMessage, &DialogTitle);
+
+	OnResponse(Response == EAppReturnType::Yes);
+};
+
+/* Gets all assets in selected folder */
+inline TArray<FAssetData> GetAssetsInSelectedFolder() {
 	TArray<FAssetData> AssetDataList;
 
-	// Get the Content Browser Module
-	FContentBrowserModule& ContentBrowserModule = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
+	/* Get the Content Browser Module */
+	const FContentBrowserModule& ContentBrowserModule = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
 
 	TArray<FString> SelectedFolders;
 	ContentBrowserModule.Get().GetSelectedPathViewFolders(SelectedFolders);
 
-	if (SelectedFolders.Num() == 0)
-	{
+	if (SelectedFolders.Num() == 0) {
 		UE_LOG(LogTemp, Warning, TEXT("No folder selected in the Content Browser."));
 		return AssetDataList; 
 	}
 
-	FString CurrentFolder = SelectedFolders[0];
+	const FString CurrentFolder = SelectedFolders[0];
 
-	// Check if the folder is the root folder, and show a prompt if so
-	if (CurrentFolder == "/Game")
-	{
-		SpawnPrompt(
-			"Action Not Allowed in Root Content Folder",
-			"You can't do this action in the root folder, this will stall the editor for a long time."
+	/* Check if the folder is the root folder, and show a prompt if */
+	if (CurrentFolder == "/Game") {
+		bool bContinue = false;
+		
+		SpawnYesNoPrompt(
+			TEXT("Large Operation"),
+			TEXT("This will stall the editor for a long time. Continue anyway?"),
+			[&](const bool bConfirmed) {
+				bContinue = bConfirmed;
+			}
 		);
-		return AssetDataList;
+
+		if (!bContinue) {
+			UE_LOG(LogTemp, Warning, TEXT("Action cancelled by user."));
+			return AssetDataList;
+		}
 	}
 
-	// Get the Asset Registry Module
-	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+	/* Get the Asset Registry Module */
+	const FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
 	AssetRegistryModule.Get().SearchAllAssets(true);
 
-	// Get all assets in the folder and its subfolders
+	/* Get all assets in the folder and its subfolders */
 	AssetRegistryModule.Get().GetAssetsByPath(FName(*CurrentFolder), AssetDataList, true);
 
 	return AssetDataList;
 }
 
-inline TArray<TSharedPtr<FJsonValue>> RequestExports(const FString& Path)
-{
+inline TArray<TSharedPtr<FJsonValue>> RequestExports(const FString& Path) {
 	TArray<TSharedPtr<FJsonValue>> Exports = {};
 
 	const TSharedPtr<FJsonObject> Response = FAssetUtilities::API_RequestExports(Path);
@@ -160,22 +187,20 @@ inline TArray<TSharedPtr<FJsonValue>> RequestExports(const FString& Path)
 	return Exports;
 }
 
-inline TSharedPtr<FJsonObject> RequestExport(const FString& FetchPath = "/api/v1/export?raw=true&path=", const FString& Path = "")
-{
+inline TSharedPtr<FJsonObject> RequestExport(const FString& FetchPath = "/api/export?raw=true&path=", const FString& Path = "") {
 	static TMap<FString, TSharedPtr<FJsonObject>> ExportCache;
 
 	if (Path.IsEmpty()) return TSharedPtr<FJsonObject>();
 
-	// Check cache first
-	if (TSharedPtr<FJsonObject>* CachedResponse = ExportCache.Find(Path))
-	{
+	/* Check cache first */
+	if (TSharedPtr<FJsonObject>* CachedResponse = ExportCache.Find(Path)) {
 		return *CachedResponse;
 	}
 
-	// Fetch from API
+	/* Fetch from API */
 	TSharedPtr<FJsonObject> Response = FAssetUtilities::API_RequestExports(Path, FetchPath);
-	if (Response)
-	{
+	
+	if (Response) {
 		ExportCache.Add(Path, Response);
 	}
 
@@ -185,41 +210,56 @@ inline TSharedPtr<FJsonObject> RequestExport(const FString& FetchPath = "/api/v1
 inline bool IsProcessRunning(const FString& ProcessName) {
 	bool bIsRunning = false;
 
-	// Convert FString to WCHAR
+	/* Convert FString to WCHAR */
 	const TCHAR* ProcessNameChar = *ProcessName;
-	const WCHAR* ProcessNameWChar = (const WCHAR*)ProcessNameChar;
 
-	HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-	if (hSnapshot != INVALID_HANDLE_VALUE) {
+	const HANDLE Snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	if (Snapshot != INVALID_HANDLE_VALUE) {
 		PROCESSENTRY32 ProcessEntry;
 		ProcessEntry.dwSize = sizeof(ProcessEntry);
 
-		if (Process32First(hSnapshot, &ProcessEntry)) {
+		if (Process32First(Snapshot, &ProcessEntry)) {
 			do {
-				if (_wcsicmp(ProcessEntry.szExeFile, ProcessNameWChar) == 0) {
+				if (_wcsicmp(ProcessEntry.szExeFile, ProcessNameChar) == 0) {
 					bIsRunning = true;
 					break;
 				}
-			} while (Process32Next(hSnapshot, &ProcessEntry));
+			} while (Process32Next(Snapshot, &ProcessEntry));
 		}
 
-		CloseHandle(hSnapshot);
+		CloseHandle(Snapshot);
 	}
 
 	return bIsRunning;
 }
 
+inline TSharedPtr<FJsonObject> GetExport(const FString& Type, TArray<TSharedPtr<FJsonValue>> AllJsonObjects, const bool bGetProperties = false) {
+	for (const TSharedPtr<FJsonValue> Value : AllJsonObjects) {
+		const TSharedPtr<FJsonObject> ValueObject = Value->AsObject();
+
+		if (ValueObject->GetStringField(TEXT("Type")) == Type) {
+			if (bGetProperties) {
+				return ValueObject->GetObjectField(TEXT("Properties"));
+			}
+			
+			return ValueObject;
+		}
+	}
+	
+	return nullptr;
+}
+
 inline TSharedPtr<FJsonObject> GetExport(const FJsonObject* PackageIndex, TArray<TSharedPtr<FJsonValue>> AllJsonObjects) {
-	FString ObjectName = PackageIndex->GetStringField(TEXT("ObjectName")); // Class'Asset:ExportName'
-	FString ObjectPath = PackageIndex->GetStringField(TEXT("ObjectPath")); // Path/Asset.Index
+	FString ObjectName = PackageIndex->GetStringField(TEXT("ObjectName")); /* Class'Asset:ExportName' */
+	FString ObjectPath = PackageIndex->GetStringField(TEXT("ObjectPath")); /* Path/Asset.Index */
 	FString Outer;
 	
-	// Clean up ObjectName (Class'Asset:ExportName' --> Asset:ExportName --> ExportName)
+	/* Clean up ObjectName (Class'Asset:ExportName' --> Asset:ExportName --> ExportName) */
 	ObjectName.Split("'", nullptr, &ObjectName);
 	ObjectName.Split("'", &ObjectName, nullptr);
 
 	if (ObjectName.Contains(":")) {
-		ObjectName.Split(":", nullptr, &ObjectName); // Asset:ExportName --> ExportName
+		ObjectName.Split(":", nullptr, &ObjectName); /* Asset:ExportName --> ExportName */
 	}
 
 	if (ObjectName.Contains(".")) {
@@ -232,23 +272,19 @@ inline TSharedPtr<FJsonObject> GetExport(const FJsonObject* PackageIndex, TArray
 
 	int Index = 0;
 
-	// Search for the object in the AllJsonObjects array
+	/* Search for the object in the AllJsonObjects array */
 	for (const TSharedPtr<FJsonValue>& Value : AllJsonObjects) {
 		const TSharedPtr<FJsonObject> ValueObject = Value->AsObject();
 
 		FString Name;
 		if (ValueObject->TryGetStringField(TEXT("Name"), Name) && Name == ObjectName) {
-			if (ValueObject->HasField(TEXT("Outer")) && !Outer.IsEmpty())
-			{
+			if (ValueObject->HasField(TEXT("Outer")) && !Outer.IsEmpty()) {
 				FString OuterName = ValueObject->GetStringField(TEXT("Outer"));
 
-				if (OuterName == Outer)
-				{
+				if (OuterName == Outer) {
 					return AllJsonObjects[Index]->AsObject();
 				}
-			}
-			else
-			{
+			} else {
 				return ValueObject;
 			}
 		}
@@ -259,9 +295,8 @@ inline TSharedPtr<FJsonObject> GetExport(const FJsonObject* PackageIndex, TArray
 	return nullptr;
 }
 
-inline bool IsProperExportData(const TSharedPtr<FJsonObject>& JsonObject)
-{
-	// Property checks
+inline bool IsProperExportData(const TSharedPtr<FJsonObject>& JsonObject) {
+	/* Property checks */
 	if (!JsonObject.IsValid() ||
 		!JsonObject->HasField(TEXT("Type")) ||
 		!JsonObject->HasField(TEXT("Name")) ||
@@ -271,11 +306,10 @@ inline bool IsProperExportData(const TSharedPtr<FJsonObject>& JsonObject)
 	return true;
 }
 
-inline bool DeserializeJSON(const FString& FilePath, TArray<TSharedPtr<FJsonValue>>& JsonParsed)
-{
+inline bool DeserializeJSON(const FString& FilePath, TArray<TSharedPtr<FJsonValue>>& JsonParsed) {
 	if (FPaths::FileExists(FilePath)) {
-
 		FString ContentBefore;
+		
 		if (FFileHelper::LoadFileToString(ContentBefore, *FilePath)) {
 			FString Content = FString(TEXT("{\"data\": "));
 			Content.Append(ContentBefore);
@@ -295,37 +329,101 @@ inline bool DeserializeJSON(const FString& FilePath, TArray<TSharedPtr<FJsonValu
 	return false;
 }
 
+inline bool DeserializeArrayJSON(const FString& String, TArray<TSharedPtr<FJsonValue>>& JsonParsed) {
+	FString Content = FString(TEXT("{\"data\": "));
+	Content.Append(String);
+	Content.Append(FString("}"));
+
+	const TSharedRef<TJsonReader<TCHAR>> JsonReader = TJsonReaderFactory<TCHAR>::Create(Content);
+
+	TSharedPtr<FJsonObject> JsonObject;
+	if (FJsonSerializer::Deserialize(JsonReader, JsonObject)) {
+		JsonParsed = JsonObject->GetArrayField(TEXT("data"));
+	
+		return true;
+	}
+
+	return false;
+}
+
+inline bool DeserializeJSONObject(const FString& String, TSharedPtr<FJsonObject>& JsonParsed) {
+	FString Content = FString(TEXT("{\"data\": "));
+	Content.Append(String);
+	Content.Append(FString("}"));
+
+	const TSharedRef<TJsonReader<TCHAR>> JsonReader = TJsonReaderFactory<TCHAR>::Create(Content);
+
+	TSharedPtr<FJsonObject> JsonObject;
+	if (FJsonSerializer::Deserialize(JsonReader, JsonObject)) {
+		JsonParsed = JsonObject->GetObjectField(TEXT("data"));
+	
+		return true;
+	}
+
+	return false;
+}
+
 inline TArray<FString> OpenFileDialog(const FString& Title, const FString& Type) {
 	TArray<FString> ReturnValue;
 
-	// Window Handler for Windows
-	void* ParentWindowHandle = nullptr;
+	/* Window Handler for Windows */
+	const void* ParentWindowHandle = nullptr;
+	const IMainFrameModule& MainFrameModule = IMainFrameModule::Get();
+	const TSharedPtr<SWindow> MainWindow = MainFrameModule.GetParentWindow();
 
-	IMainFrameModule& MainFrameModule = IMainFrameModule::Get();
-	TSharedPtr<SWindow> MainWindow = MainFrameModule.GetParentWindow();
+	if (MainWindow.IsValid() && MainWindow->GetNativeWindow().IsValid()) {
+		ParentWindowHandle = MainWindow->GetNativeWindow()->GetOSWindowHandle();
+	}
 
-	// Define the window handle, if it's valid
-	if (MainWindow.IsValid() && MainWindow->GetNativeWindow().IsValid()) ParentWindowHandle = MainWindow->GetNativeWindow()->GetOSWindowHandle();
+	FString ClipboardContent;
+	FPlatformApplicationMisc::ClipboardPaste(ClipboardContent);
+	FString DefaultPath = FString("");
+
+	if (!ClipboardContent.IsEmpty()) {
+		if (FPaths::FileExists(ClipboardContent)) {
+			DefaultPath = FPaths::GetPath(ClipboardContent);
+		}
+		else if (FPaths::DirectoryExists(ClipboardContent)) {
+			DefaultPath = ClipboardContent;
+		}
+	}
 
 	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
 	if (DesktopPlatform) {
-		uint32 SelectionFlag = 1;
-
-		// Open File Dialog
-		DesktopPlatform->OpenFileDialog(ParentWindowHandle, Title, FString(""), FString(""), Type, SelectionFlag, ReturnValue);
+		constexpr uint32 SelectionFlag = 1;
+		
+		DesktopPlatform->OpenFileDialog(ParentWindowHandle, Title, DefaultPath, FString(""), Type, SelectionFlag, ReturnValue);
 	}
 
 	return ReturnValue;
 }
 
+inline FString OpenFolderDialog(const FString& Title, const FString& DefaultPath) {
+	FString OutFolder;
+	const void* ParentWindowHandle = nullptr;
+
+	const IMainFrameModule& MainFrameModule = IMainFrameModule::Get();
+	const TSharedPtr<SWindow> MainWindow = MainFrameModule.GetParentWindow();
+	if (MainWindow.IsValid() && MainWindow->GetNativeWindow().IsValid()) {
+		ParentWindowHandle = MainWindow->GetNativeWindow()->GetOSWindowHandle();
+	}
+
+	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
+	if (DesktopPlatform) {
+		DesktopPlatform->OpenDirectoryDialog(ParentWindowHandle, Title, DefaultPath, OutFolder);
+	}
+
+	return OutFolder;
+}
+
 inline TArray<FString> OpenFolderDialog(const FString& Title) {
 	TArray<FString> ReturnValue;
 
-	// Window Handler for Windows
-	void* ParentWindowHandle = nullptr;
+	/* Window Handler for Windows */
+	const void* ParentWindowHandle = nullptr;
 
-	IMainFrameModule& MainFrameModule = IMainFrameModule::Get();
-	TSharedPtr<SWindow> MainWindow = MainFrameModule.GetParentWindow();
+	const IMainFrameModule& MainFrameModule = IMainFrameModule::Get();
+	const TSharedPtr<SWindow> MainWindow = MainFrameModule.GetParentWindow();
 
 	if (MainWindow.IsValid() && MainWindow->GetNativeWindow().IsValid()) {
 		ParentWindowHandle = MainWindow->GetNativeWindow()->GetOSWindowHandle();
@@ -335,7 +433,7 @@ inline TArray<FString> OpenFolderDialog(const FString& Title) {
 	if (DesktopPlatform) {
 		FString SelectedFolder;
 
-		// Open Folder Dialog
+		/* Open Folder Dialog */
 		if (DesktopPlatform->OpenDirectoryDialog(ParentWindowHandle, Title, FString(""), SelectedFolder)) {
 			ReturnValue.Add(SelectedFolder);
 		}
@@ -344,19 +442,20 @@ inline TArray<FString> OpenFolderDialog(const FString& Title) {
 	return ReturnValue;
 }
 
-// Filter to remove
-inline TSharedPtr<FJsonObject> RemovePropertiesShared(TSharedPtr<FJsonObject> Input, TArray<FString> RemovedProperties) {
-	const TSharedPtr<FJsonObject> RawSharedPtrData = TSharedPtr<FJsonObject>(Input);
-	
-	for (FString Property : RemovedProperties) {
-		if (RawSharedPtrData->HasField(Property))
-			RawSharedPtrData->RemoveField(Property);
+/* Filter to remove */
+inline TSharedPtr<FJsonObject> RemovePropertiesShared(const TSharedPtr<FJsonObject>& Input, const TArray<FString>& RemovedProperties) {
+	TSharedPtr<FJsonObject> ClonedJsonObject = MakeShareable(new FJsonObject(*Input));
+    
+	for (const FString& Property : RemovedProperties) {
+		if (ClonedJsonObject->HasField(Property)) {
+			ClonedJsonObject->RemoveField(Property);
+		}
 	}
-
-	return RawSharedPtrData;
+    
+	return ClonedJsonObject;
 }
 
-// Filter to whitelist
+/* Filter to whitelist */
 inline TSharedPtr<FJsonObject> KeepPropertiesShared(const TSharedPtr<FJsonObject>& Input, TArray<FString> WhitelistProperties) {
 	const TSharedPtr<FJsonObject> RawSharedPtrData = MakeShared<FJsonObject>();
 
@@ -369,11 +468,10 @@ inline TSharedPtr<FJsonObject> KeepPropertiesShared(const TSharedPtr<FJsonObject
 	return RawSharedPtrData;
 }
 
-inline void SavePluginConfig(UDeveloperSettings* EditorSettings)
-{
+inline void SavePluginConfig(UDeveloperSettings* EditorSettings) {
 	EditorSettings->SaveConfig();
 	
-#if ENGINE_MAJOR_VERSION >= 5
+#if ENGINE_UE5
 	EditorSettings->TryUpdateDefaultConfigFile();
 	EditorSettings->ReloadConfig(nullptr, nullptr, UE::LCPF_PropagateToInstances);
 #else
@@ -384,7 +482,7 @@ inline void SavePluginConfig(UDeveloperSettings* EditorSettings)
 	EditorSettings->LoadConfig();
 }
 
-// Simple handler for JsonArray
+/* Simple handler for JsonArray */
 inline auto ProcessJsonArrayField(const TSharedPtr<FJsonObject>& ObjectField, const FString& ArrayFieldName,
                                   const TFunction<void(const TSharedPtr<FJsonObject>&)>& ProcessObjectFunction) -> void
 {
@@ -409,7 +507,14 @@ inline auto ProcessExports(const TArray<TSharedPtr<FJsonValue>>& Exports,
 	}
 }
 
-// Show the user a Notification
+/* ReSharper disable once CppParameterNeverUsed */
+inline void SetNotificationSubText(FNotificationInfo& Notification, const FText& SubText) {
+#if ENGINE_UE5
+	Notification.SubText = SubText;
+#endif
+}
+
+/* Show the user a Notification */
 inline auto AppendNotification(const FText& Text, const FText& SubText, const float ExpireDuration,
                                const SNotificationItem::ECompletionState CompletionState, const bool bUseSuccessFailIcons,
                                const float WidthOverride) -> void
@@ -419,16 +524,14 @@ inline auto AppendNotification(const FText& Text, const FText& SubText, const fl
 	Info.bUseLargeFont = true;
 	Info.bUseSuccessFailIcons = bUseSuccessFailIcons;
 	Info.WidthOverride = FOptionalSize(WidthOverride);
-
-#if ENGINE_MAJOR_VERSION >= 5
-	Info.SubText = SubText;
-#endif
+	
+	SetNotificationSubText(Info, SubText);
 
 	const TSharedPtr<SNotificationItem> NotificationPtr = FSlateNotificationManager::Get().AddNotification(Info);
 	NotificationPtr->SetCompletionState(CompletionState);
 }
 
-// Show the user a Notification with Subtext
+/* Show the user a Notification with Subtext */
 inline auto AppendNotification(const FText& Text, const FText& SubText, float ExpireDuration,
                                const FSlateBrush* SlateBrush, SNotificationItem::ECompletionState CompletionState,
                                const bool bUseSuccessFailIcons, const float WidthOverride) -> void
@@ -438,11 +541,393 @@ inline auto AppendNotification(const FText& Text, const FText& SubText, float Ex
 	Info.bUseLargeFont = true;
 	Info.bUseSuccessFailIcons = bUseSuccessFailIcons;
 	Info.WidthOverride = FOptionalSize(WidthOverride);
-#if ENGINE_MAJOR_VERSION >= 5
-	Info.SubText = SubText;
-#endif
 	Info.Image = SlateBrush;
+
+	SetNotificationSubText(Info, SubText);
 
 	const TSharedPtr<SNotificationItem> NotificationPtr = FSlateNotificationManager::Get().AddNotification(Info);
 	NotificationPtr->SetCompletionState(CompletionState);
 }
+
+inline int32 ConvertVersionStringToInt(const FString& VersionStr) {
+	return FCString::Atoi(*VersionStr.Replace(TEXT("."), TEXT("")));
+}
+
+inline FString ReadPathFromObject(const TSharedPtr<FJsonObject>* PackageIndex) {
+	FString ObjectType, ObjectName, ObjectPath, Outer;
+	PackageIndex->Get()->GetStringField(TEXT("ObjectName")).Split("'", &ObjectType, &ObjectName);
+
+	ObjectPath = PackageIndex->Get()->GetStringField(TEXT("ObjectPath"));
+	ObjectPath.Split(".", &ObjectPath, nullptr);
+
+	const UJsonAsAssetSettings* Settings = GetDefault<UJsonAsAssetSettings>();
+
+	/* Rare case of needing a GameName */
+	if (!Settings->AssetSettings.GameName.IsEmpty()) {
+		ObjectPath = ObjectPath.Replace(*(Settings->AssetSettings.GameName + "/Content"), TEXT("/Game"));
+	}
+
+	ObjectPath = ObjectPath.Replace(TEXT("Engine/Content"), TEXT("/Engine"));
+	ObjectName = ObjectName.Replace(TEXT("'"), TEXT(""));
+
+	if (ObjectName.Contains(".")) {
+		ObjectName.Split(".", nullptr, &ObjectName);
+	}
+
+	if (ObjectName.Contains(".")) {
+		ObjectName.Split(".", &Outer, &ObjectName);
+	}
+
+	return ObjectPath + "." + ObjectName;
+}
+
+/* Creates a plugin in the name (may result in bugs if inputted wrong) */
+static void CreatePlugin(FString PluginName) {
+	/* Plugin creation is different between UE5 and UE4 */
+#if ENGINE_UE5
+	FPluginUtils::FNewPluginParamsWithDescriptor CreationParams;
+	CreationParams.Descriptor.bCanContainContent = true;
+
+	CreationParams.Descriptor.FriendlyName = PluginName;
+	CreationParams.Descriptor.Version = 1;
+	CreationParams.Descriptor.VersionName = TEXT("1.0");
+	CreationParams.Descriptor.Category = TEXT("Other");
+
+	FText FailReason;
+	FPluginUtils::FLoadPluginParams LoadParams;
+	LoadParams.bEnablePluginInProject = true;
+	LoadParams.bUpdateProjectPluginSearchPath = true;
+	LoadParams.bSelectInContentBrowser = false;
+
+	FPluginUtils::CreateAndLoadNewPlugin(PluginName, FPaths::ProjectPluginsDir(), CreationParams, LoadParams);
+#else
+	FPluginUtils::FNewPluginParams CreationParams;
+	CreationParams.bCanContainContent = true;
+
+	FText FailReason;
+	FPluginUtils::FMountPluginParams LoadParams;
+	LoadParams.bEnablePluginInProject = true;
+	LoadParams.bUpdateProjectPluginSearchPath = true;
+	LoadParams.bSelectInContentBrowser = false;
+
+	FPluginUtils::CreateAndMountNewPlugin(PluginName, FPaths::ProjectPluginsDir(), CreationParams, LoadParams, FailReason);
+#endif
+
+#define LOCTEXT_NAMESPACE "UMG"
+#if WITH_EDITOR
+	/* Setup notification's arguments */
+	FFormatNamedArguments Args;
+	Args.Add(TEXT("PluginName"), FText::FromString(PluginName));
+
+	/* Create notification */
+	FNotificationInfo Info(FText::Format(LOCTEXT("PluginCreated", "Plugin Created: {PluginName}"), Args));
+	Info.ExpireDuration = 10.0f;
+	Info.bUseLargeFont = true;
+	Info.bUseSuccessFailIcons = false;
+	Info.WidthOverride = FOptionalSize(350);
+	SetNotificationSubText(Info, FText::FromString(FString("Created successfully")));
+
+	const TSharedPtr<SNotificationItem> NotificationPtr = FSlateNotificationManager::Get().AddNotification(Info);
+	NotificationPtr->SetCompletionState(SNotificationItem::CS_Success);
+#endif
+#undef LOCTEXT_NAMESPACE
+}
+
+inline void SendHttpRequest(const FString& URL, TFunction<void(FHttpRequestPtr, FHttpResponsePtr, bool)> OnComplete, const FString& Verb = "GET", const FString& ContentType = "", const FString& Content = "") {
+	FHttpModule* Http = &FHttpModule::Get();
+	if (!Http) {
+		UE_LOG(LogTemp, Error, TEXT("HTTP module not available"));
+		return;
+	}
+
+#if ENGINE_UE5
+	const TSharedRef<IHttpRequest> Request = Http->CreateRequest();
+#else
+	const TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = Http->CreateRequest();
+#endif
+	
+	Request->SetURL(URL);
+	Request->SetVerb(Verb);
+
+	if (!ContentType.IsEmpty()) {
+		Request->SetHeader(TEXT("Content-Type"), ContentType);
+	}
+    
+	if (!Content.IsEmpty()) {
+		Request->SetContentAsString(Content);
+	}
+
+	Request->OnProcessRequestComplete().BindLambda([OnComplete](const FHttpRequestPtr& RequestPtr, const FHttpResponsePtr& Response, const bool bWasSuccessful) {
+		OnComplete(RequestPtr, Response, bWasSuccessful);
+	});
+
+	Request->ProcessRequest();
+}
+
+inline UObjectSerializer* CreateObjectSerializer() {
+	UPropertySerializer* PropertySerializer = NewObject<UPropertySerializer>();
+	UObjectSerializer* ObjectSerializer = NewObject<UObjectSerializer>();
+	ObjectSerializer->SetPropertySerializer(PropertySerializer);
+
+	return ObjectSerializer;
+}
+
+inline TArray<TSharedPtr<FJsonValue>> GetExportsStartingWith(const FString& Start, const FString& Property, TArray<TSharedPtr<FJsonValue>> AllJsonObjects) {
+	TArray<TSharedPtr<FJsonValue>> FilteredObjects;
+
+	for (const TSharedPtr<FJsonValue>& JsonObjectValue : AllJsonObjects) {
+		if (JsonObjectValue->Type == EJson::Object) {
+			TSharedPtr<FJsonObject> JsonObject = JsonObjectValue->AsObject();
+
+			if (JsonObject.IsValid() && JsonObject->HasField(Property)) {
+				const FString StringValue = JsonObject->GetStringField(Property);
+
+				/* Check if the "Type" field starts with the specified string */
+				if (StringValue.StartsWith(Start)) {
+					FilteredObjects.Add(JsonObjectValue);
+				}
+			}
+		}
+	}
+
+	return FilteredObjects;
+}
+
+inline TSharedPtr<FJsonObject> GetExportStartingWith(const FString& Start, const FString& Property, TArray<TSharedPtr<FJsonValue>> AllJsonObjects, const bool bExportProperties = false) {
+	for (const TSharedPtr<FJsonValue>& JsonObjectValue : AllJsonObjects) {
+		if (JsonObjectValue->Type == EJson::Object) {
+			TSharedPtr<FJsonObject> JsonObject = JsonObjectValue->AsObject();
+
+			if (JsonObject.IsValid() && JsonObject->HasField(Property)) {
+				const FString StringValue = JsonObject->GetStringField(Property);
+
+				/* Check if the "Type" field starts with the specified string */
+				if (StringValue.StartsWith(Start)) {
+					if (bExportProperties) {
+						if (JsonObject->HasField(TEXT("Properties"))) {
+							return JsonObject->GetObjectField(TEXT("Properties"));
+						}
+					}
+					return JsonObject;
+				}
+			}
+		}
+	}
+
+	return TSharedPtr<FJsonObject>();
+}
+
+inline TSharedPtr<FJsonObject> GetExportMatchingWith(const FString& Match, const FString& Property, TArray<TSharedPtr<FJsonValue>> AllJsonObjects, const bool bExportProperties = false) {
+	for (const TSharedPtr<FJsonValue>& JsonObjectValue : AllJsonObjects) {
+		if (JsonObjectValue->Type == EJson::Object) {
+			TSharedPtr<FJsonObject> JsonObject = JsonObjectValue->AsObject();
+
+			if (JsonObject.IsValid() && JsonObject->HasField(Property)) {
+				const FString StringValue = JsonObject->GetStringField(Property);
+
+				/* Check if the "Name" field starts with the specified string */
+				if (StringValue.Equals(Match)) {
+					if (bExportProperties) {
+						if (JsonObject->HasField(TEXT("Properties"))) {
+							return JsonObject->GetObjectField(TEXT("Properties"));
+						}
+					}
+					return JsonObject;
+				}
+			}
+		}
+	}
+
+	return TSharedPtr<FJsonObject>();
+}
+
+/* Helper Math functions ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ */
+inline TSharedPtr<FJsonObject> GetVectorJson(const FVector& Vec) {
+	TSharedPtr<FJsonObject> OutVec = MakeShareable(new FJsonObject);
+	
+	OutVec->SetNumberField(TEXT("X"), Vec.X);
+	OutVec->SetNumberField(TEXT("Y"), Vec.Y);
+	OutVec->SetNumberField(TEXT("Z"), Vec.Z);
+	
+	return OutVec;
+}
+
+inline TSharedPtr<FJsonObject> GetRotationJson(const FQuat& Quat) {
+	TSharedPtr<FJsonObject> OutRot = MakeShareable(new FJsonObject);
+	
+	OutRot->SetNumberField(TEXT("X"), Quat.X);
+	OutRot->SetNumberField(TEXT("Y"), Quat.Y);
+	OutRot->SetNumberField(TEXT("Z"), Quat.Z);
+	OutRot->SetNumberField(TEXT("W"), Quat.W);
+	OutRot->SetBoolField(TEXT("IsNormalized"), true);
+	OutRot->SetNumberField(TEXT("Size"), Quat.Size());
+	OutRot->SetNumberField(TEXT("SizeSquared"), Quat.SizeSquared());
+	
+	return OutRot;
+}
+
+inline TSharedPtr<FJsonObject> GetTransformJson(const FTransform& Transform) {
+	TSharedPtr<FJsonObject> OutTransform = MakeShareable(new FJsonObject);
+	
+	OutTransform->SetObjectField(TEXT("Rotation"), GetRotationJson(Transform.GetRotation()));
+	OutTransform->SetObjectField(TEXT("Translation"), GetVectorJson(Transform.GetTranslation()));
+	OutTransform->SetObjectField(TEXT("Scale3D"), GetVectorJson(Transform.GetScale3D()));
+	
+	return OutTransform;
+}
+
+inline FTransform GetTransformFromJson(const TSharedPtr<FJsonObject>& JsonObject) {
+	FTransform OutTransform = FTransform::Identity;
+	
+	if (!JsonObject.IsValid()) {
+		return OutTransform;
+	}
+
+	if (JsonObject->HasField(TEXT("Rotation"))) {
+		const TSharedPtr<FJsonObject> QuatObject = JsonObject->GetObjectField(TEXT("Rotation"));
+		
+		FQuat Quat;
+		Quat.X = QuatObject->GetNumberField(TEXT("X"));
+		Quat.Y = QuatObject->GetNumberField(TEXT("Y"));
+		Quat.Z = QuatObject->GetNumberField(TEXT("Z"));
+		Quat.W = QuatObject->GetNumberField(TEXT("W"));
+		
+		OutTransform.SetRotation(Quat);
+	}
+
+	if (JsonObject->HasField(TEXT("Translation"))) {
+		const TSharedPtr<FJsonObject> TranslationObject = JsonObject->GetObjectField(TEXT("Translation"));
+		FVector Translation;
+		
+		Translation.X = TranslationObject->GetNumberField(TEXT("X"));
+		Translation.Y = TranslationObject->GetNumberField(TEXT("Y"));
+		Translation.Z = TranslationObject->GetNumberField(TEXT("Z"));
+		
+		OutTransform.SetTranslation(Translation);
+	}
+
+	if (JsonObject->HasField(TEXT("Scale3D"))) {
+		const TSharedPtr<FJsonObject> ScaleObj = JsonObject->GetObjectField(TEXT("Scale3D"));
+		FVector Scale;
+		
+		Scale.X = ScaleObj->GetNumberField(TEXT("X"));
+		Scale.Y = ScaleObj->GetNumberField(TEXT("Y"));
+		Scale.Z = ScaleObj->GetNumberField(TEXT("Z"));
+		
+		OutTransform.SetScale3D(Scale);
+	}
+
+	return OutTransform;
+}
+
+#if ENGINE_UE4 && (!UE4_27_BELOW)
+inline UStructProperty* LoadStructProperty(const TSharedPtr<FJsonObject>& JsonObject) {
+#else
+inline FStructProperty* LoadStructProperty(const TSharedPtr<FJsonObject>& JsonObject) {
+#endif
+    if (!JsonObject.IsValid()) {
+        return nullptr;
+    }
+
+    FString ObjectName;
+    if (!JsonObject->TryGetStringField(TEXT("ObjectName"), ObjectName)) {
+        return nullptr;
+    }
+
+    const int32 FirstQuoteIndex = ObjectName.Find(TEXT("'"));
+    const int32 LastQuoteIndex = ObjectName.Find(TEXT("'"), ESearchCase::IgnoreCase, ESearchDir::FromEnd);
+	
+    if (FirstQuoteIndex == INDEX_NONE || LastQuoteIndex == INDEX_NONE || LastQuoteIndex <= FirstQuoteIndex) {
+        return nullptr;
+    }
+
+    const FString InnerString = ObjectName.Mid(FirstQuoteIndex + 1, LastQuoteIndex - FirstQuoteIndex - 1);
+
+    FString StructName, PropertyName;
+    if (!InnerString.Split(TEXT(":"), &StructName, &PropertyName)) {
+        return nullptr;
+    }
+
+    FString ObjectPath = JsonObject->GetStringField(TEXT("ObjectPath"));
+
+    const UStruct* StructDef = FindObject<UStruct>(ANY_PACKAGE, *StructName);
+    if (!StructDef) {
+        return nullptr;
+    }
+
+#if ENGINE_UE4 && (!UE4_27_BELOW)
+    UStructProperty* StructProp = FindFProperty<UStructProperty>(StructDef, *PropertyName);
+#else
+    FStructProperty* StructProp = FindFProperty<FStructProperty>(StructDef, *PropertyName);
+#endif
+    if (!StructProp) {
+        return nullptr;
+    }
+
+	return StructProp;
+}
+
+inline void CloseApplicationByProcessName(const FString& ProcessName) {
+	DWORD ProcessID = 0;
+
+	const HANDLE Snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+
+	if (Snapshot != INVALID_HANDLE_VALUE) {
+		PROCESSENTRY32 ProcessEntry;
+		ProcessEntry.dwSize = sizeof(PROCESSENTRY32);
+
+		if (Process32First(Snapshot, &ProcessEntry)) {
+			do {
+				if (FCString::Stricmp(ProcessEntry.szExeFile, ProcessName.GetCharArray().GetData()) == 0) {
+					ProcessID = ProcessEntry.th32ProcessID;
+					break;
+				}
+			} while (Process32Next(Snapshot, &ProcessEntry));
+		}
+		
+		CloseHandle(Snapshot);
+	}
+
+	if (ProcessID != 0) {
+		const HANDLE Process = OpenProcess(PROCESS_TERMINATE, false, ProcessID);
+		
+		if (Process != nullptr) {
+			TerminateProcess(Process, 0);
+			CloseHandle(Process);
+		}
+	}
+}
+
+inline TSharedPtr<FJsonObject> RequestObjectURL(const FString& URL) {
+	FHttpModule* HttpModule = &FHttpModule::Get();
+
+	const auto Request = HttpModule->CreateRequest();
+			
+	Request->SetURL(URL);
+	Request->SetVerb(TEXT("GET"));
+
+	const auto Response = FRemoteUtilities::ExecuteRequestSync(Request);
+	if (!Response.IsValid()) return TSharedPtr<FJsonObject>();
+
+	TSharedPtr<FJsonObject> DeserializedJSON;
+
+	if (!DeserializeJSONObject(Response->GetContentAsString(), DeserializedJSON)) return TSharedPtr<FJsonObject>();
+	return DeserializedJSON;
+};
+
+inline TArray<TSharedPtr<FJsonValue>> RequestArrayURL(const FString& URL) {
+	FHttpModule* HttpModule = &FHttpModule::Get();
+
+	const auto Request = HttpModule->CreateRequest();
+			
+	Request->SetURL(URL);
+	Request->SetVerb(TEXT("GET"));
+
+	const auto Response = FRemoteUtilities::ExecuteRequestSync(Request);
+	if (!Response.IsValid()) return TArray<TSharedPtr<FJsonValue>>();
+
+	TArray<TSharedPtr<FJsonValue>> DeserializedJSON;
+
+	if (!DeserializeArrayJSON(Response->GetContentAsString(), DeserializedJSON)) return TArray<TSharedPtr<FJsonValue>>();
+	return DeserializedJSON;
+};

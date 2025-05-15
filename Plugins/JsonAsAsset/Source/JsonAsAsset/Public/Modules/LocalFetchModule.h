@@ -1,4 +1,4 @@
-﻿// Copyright JAA Contributors 2024-2025
+﻿/* Copyright JsonAsAsset Contributors 2024-2025 */
 
 #pragma once
 
@@ -7,31 +7,26 @@
 /* Structures, Enumerations, used for Local Fetch */
 #include "LocalFetchModule.generated.h"
 
-/**
- * A list of classes allowed to be used by Local Fetch
- * --> Defined in CPP
- */
-extern TArray<FString> LocalFetchAcceptedTypes;
+class UJsonAsAssetSettings;
 
-class LocalFetchModule
-{
+class LocalFetchModule {
 public:
-	static void LaunchLocalFetch();
+	static bool LaunchLocalFetch();
 	static void CloseLocalFetch();
+
+	static bool IsSetup(const UJsonAsAssetSettings* Settings, TArray<FString>& Params);
+	static bool IsSetup(const UJsonAsAssetSettings* Settings);
 };
 
-// Used for settings and in Local Fetch
-// I wanted to rename "Value" to "Key", because it makes more sense, but it'll break references
 USTRUCT()
-struct FAesKey
+struct FLocalFetchAES
 {
 	GENERATED_BODY()
 public:
-	// Construct an AES Key with an empty Key and Value
-	FAesKey() {
+	FLocalFetchAES() {
 	}
 
-	FAesKey(FString NewGUID, FString NewKey) {
+	FLocalFetchAES(FString NewGUID, FString NewKey) {
 		Value = NewKey;
 		Guid = NewGUID;
 	}

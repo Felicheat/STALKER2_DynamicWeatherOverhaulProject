@@ -1,19 +1,20 @@
-// Copyright JAA Contributors 2024-2025
+/* Copyright JsonAsAsset Contributors 2024-2025 */
 
 #include "./Modules/UI/AboutJsonAsAsset.h"
 #include "Modules/UI/StyleModule.h"
 
 #include "Interfaces/IPluginManager.h"
-#if ENGINE_MAJOR_VERSION >= 5
+#include "Utilities/Compatibility.h"
+
+#if ENGINE_UE5
 #include "Styling/StyleColors.h"
 #endif
-#include "Utilities/AppStyleCompatibility.h"
 
 #define LOCTEXT_NAMESPACE "AboutJsonAsAsset"
 
 void SAboutJsonAsAsset::Construct(const FArguments& InArgs) {
-	// Plugin Details
-	TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin("JsonAsAsset");
+	/* Plugin Details */
+	const TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin("JsonAsAsset");
 
 	TSharedPtr<SButton> FModelButton;
 	TSharedPtr<SButton> GithubButton;
@@ -63,7 +64,7 @@ void SAboutJsonAsAsset::Construct(const FArguments& InArgs) {
 										.Padding(0.f, 4.f)
 										[
 											SNew(STextBlock)
-#if ENGINE_MAJOR_VERSION >= 5
+#if ENGINE_UE5
 												.ColorAndOpacity(FStyleColors::ForegroundHover)
 #endif
 												.Font(FAppStyle::Get().GetFontStyle("AboutScreen.TitleFont"))
@@ -75,7 +76,7 @@ void SAboutJsonAsAsset::Construct(const FArguments& InArgs) {
 										[
 											SNew(SEditableText)
 												.IsReadOnly(true)
-#if ENGINE_MAJOR_VERSION >= 5
+#if ENGINE_UE5
 												.ColorAndOpacity(FStyleColors::ForegroundHover)
 #endif
 												.Text(Version)
@@ -91,10 +92,10 @@ void SAboutJsonAsAsset::Construct(const FArguments& InArgs) {
 									SAssignNew(FModelButton, SButton)
 										.ButtonStyle(FAppStyle::Get(), "SimpleButton")
 										.OnClicked(this, &SAboutJsonAsAsset::OnFModelButtonClicked)
-										.ContentPadding(0.f).ToolTipText(LOCTEXT("FModelButton", "FModel Application"))
+										.ContentPadding(0.f).ToolTipText(LOCTEXT("FModelButton", "FModel"))
 										[
 											SNew(SImage)
-												.Image(FJsonAsAssetStyle::Get().GetBrush(TEXT("JsonAsAsset.FModelLogo")))
+												.Image(FJsonAsAssetStyle::Get().GetBrush(TEXT("JsonAsAsset.FModel.Icon")))
 												.ColorAndOpacity(FSlateColor::UseForeground())
 										]
 								]
@@ -108,10 +109,10 @@ void SAboutJsonAsAsset::Construct(const FArguments& InArgs) {
 									SAssignNew(GithubButton, SButton)
 										.ButtonStyle(FAppStyle::Get(), "SimpleButton")
 										.OnClicked(this, &SAboutJsonAsAsset::OnGithubButtonClicked)
-										.ContentPadding(0.f).ToolTipText(LOCTEXT("GithubButton", "JsonAsAsset Github Page"))
+										.ContentPadding(0.f).ToolTipText(LOCTEXT("GithubButton", "Github"))
 										[
 											SNew(SImage)
-												.Image(FJsonAsAssetStyle::Get().GetBrush(TEXT("JsonAsAsset.GithubLogo")))
+												.Image(FJsonAsAssetStyle::Get().GetBrush(TEXT("JsonAsAsset.Github.Icon")))
 												.ColorAndOpacity(FSlateColor::UseForeground())
 										]
 								]
@@ -122,7 +123,7 @@ void SAboutJsonAsAsset::Construct(const FArguments& InArgs) {
 						.AutoHeight()
 						[
 							SNew(SListView<TSharedRef<FLineDefinition>>)
-#if ENGINE_MAJOR_VERSION >= 5
+#if ENGINE_UE5
 								.ListViewStyle(&FAppStyle::Get().GetWidgetStyle<FTableViewStyle>("SimpleListView"))
 #endif
 								.ListItemsSource(&AboutLines)
@@ -144,6 +145,8 @@ void SAboutJsonAsAsset::Construct(const FArguments& InArgs) {
 		];
 }
 
+/* ReSharper disable once CppMemberFunctionMayBeStatic */
+/* ReSharper disable once CppPassValueParameterByConstReference */
 TSharedRef<ITableRow> SAboutJsonAsAsset::MakeAboutTextItemWidget(TSharedRef<FLineDefinition> Item, const TSharedRef<STableViewBase>& OwnerTable) {
 	if (Item->Text.IsEmpty())
 		return SNew(STableRow<TSharedPtr<FString>>, OwnerTable)
@@ -164,16 +167,18 @@ TSharedRef<ITableRow> SAboutJsonAsAsset::MakeAboutTextItemWidget(TSharedRef<FLin
 		];
 }
 
+/* ReSharper disable once CppMemberFunctionMayBeStatic */
 FReply SAboutJsonAsAsset::OnFModelButtonClicked() {
-	FString TheURL = "https://fmodel.app";
-	FPlatformProcess::LaunchURL(*TheURL, nullptr, nullptr);
+	const FString URL = "https://fmodel.app";
+	FPlatformProcess::LaunchURL(*URL, nullptr, nullptr);
 
 	return FReply::Handled();
 }
 
+/* ReSharper disable once CppMemberFunctionMayBeStatic */
 FReply SAboutJsonAsAsset::OnGithubButtonClicked() {
-	FString TheURL = "https://github.com/JsonAsAsset/JsonAsAsset";
-	FPlatformProcess::LaunchURL(*TheURL, nullptr, nullptr);
+	const FString URL = "https://github.com/JsonAsAsset/JsonAsAsset";
+	FPlatformProcess::LaunchURL(*URL, nullptr, nullptr);
 
 	return FReply::Handled();
 }

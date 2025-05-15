@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
 	"Version": 1,
-	"VersionName": "1.3.6",
+	"VersionName": "1.3.7",
 	"FriendlyName": "JsonAsAsset",
 	"Description": "A user-friendly Unreal Engine plugin designed to import assets from packaged games through JSON files.",
 	"Category": "Asset Import",
@@ -10,34 +10,24 @@
 	"DocsURL": "https://github.com/JsonAsAsset/JsonAsAsset",
 	"MarketplaceURL": "",
 	"SupportURL": "",
+	"EngineVersion": "5.1.0",
 	"CanContainContent": false,
-	"IsBetaVersion": false,
-	"IsExperimentalVersion": false,
-	"Installed": false,
+	"Installed": true,
 	"Modules": [
 		{
 			"Name": "JsonAsAsset",
 			"Type": "Editor",
-			"LoadingPhase": "Default",
-			"PlatformDenyList": [
-				"Android"
-			]
+			"LoadingPhase": "Default"
 		},
 		{
 			"Name": "Detex",
 			"Type": "Editor",
-			"LoadingPhase": "Default",
-			"PlatformDenyList": [
-				"Android"
-			]
+			"LoadingPhase": "Default"
 		},
 		{
 			"Name": "NVTT",
 			"Type": "Editor",
-			"LoadingPhase": "Default",
-			"PlatformDenyList": [
-				"Android"
-			]
+			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [

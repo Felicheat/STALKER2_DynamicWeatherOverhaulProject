@@ -1,43 +1,37 @@
-// Copyright JAA Contributors 2024-2025
+/* Copyright JsonAsAsset Contributors 2024-2025 */
 
 #include "Importers/Types/Tables/CurveTableImporter.h"
 #include "Dom/JsonObject.h"
-
-// Unfortunately these variables are private, so we had to make a "bypass" by making
-// an asset then casting to subclass that has these functions to modify them.
-void CCurveTableDerived::AddRow(FName Name, FRealCurve* Curve) {
-	RowMap.Add(Name, Curve);
-}
 
 void CCurveTableDerived::ChangeTableMode(ECurveTableMode Mode) {
 	CurveTableMode = Mode;
 }
 
 bool ICurveTableImporter::Import() {
-	TSharedPtr<FJsonObject> RowData = JsonObject->GetObjectField(TEXT("Rows"));
+	TSharedPtr<FJsonObject> RowData = AssetData->GetObjectField(TEXT("Rows"));
 	UCurveTable* CurveTable = NewObject<UCurveTable>(Package, UCurveTable::StaticClass(), *FileName, RF_Public | RF_Standalone);
 	CCurveTableDerived* DerivedCurveTable = Cast<CCurveTableDerived>(CurveTable);
 
-	// Used to determine curve type
+	/* Used to determine curve type */
 	ECurveTableMode CurveTableMode = ECurveTableMode::RichCurves; {
 		FString CurveMode;
 		
-		if (JsonObject->TryGetStringField(TEXT("CurveTableMode"), CurveMode))
+		if (AssetData->TryGetStringField(TEXT("CurveTableMode"), CurveMode))
 			CurveTableMode = static_cast<ECurveTableMode>(StaticEnum<ECurveTableMode>()->GetValueByNameString(CurveMode));
 
 		DerivedCurveTable->ChangeTableMode(CurveTableMode);
 	}
 
-	// Loop throughout row data, and deserialize
+	/* Loop throughout row data, and deserialize */
 	for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : RowData->Values) {
 		const TSharedPtr<FJsonObject> CurveData = Pair.Value->AsObject();
 
-		// Curve structure (either simple or rich)
+		/* Curve structure (either simple or rich) */
 		FRealCurve RealCurve;
 
 		if (CurveTableMode == ECurveTableMode::RichCurves) {
 			FRichCurve& NewRichCurve = CurveTable->AddRichCurve(FName(*Pair.Key)); {
-				RealCurve = NewRichCurve;
+				RealCurve = static_cast<FRealCurve>(NewRichCurve);
 			}
 
 			const TArray<TSharedPtr<FJsonValue>>* KeysPtr;
@@ -68,10 +62,10 @@ bool ICurveTableImporter::Import() {
 				}
 		} else {
 			FSimpleCurve& NewSimpleCurve = CurveTable->AddSimpleCurve(FName(*Pair.Key)); {
-				RealCurve = NewSimpleCurve;
+				RealCurve = static_cast<FRealCurve>(NewSimpleCurve);
 			}
 
-			// Method of Interpolation
+			/* Method of Interpolation */
 			NewSimpleCurve.InterpMode =
 				static_cast<ERichCurveInterpMode>(
 					StaticEnum<ERichCurveInterpMode>()->GetValueByNameString(CurveData->GetStringField(TEXT("InterpMode")))
@@ -79,15 +73,16 @@ bool ICurveTableImporter::Import() {
 
 			const TArray<TSharedPtr<FJsonValue>>* KeysPtr;
 			
-			if (CurveData->TryGetArrayField(TEXT("Keys"), KeysPtr))
+			if (CurveData->TryGetArrayField(TEXT("Keys"), KeysPtr)) {
 				for (const TSharedPtr<FJsonValue> KeyPtr : *KeysPtr) {
 					TSharedPtr<FJsonObject> Key = KeyPtr->AsObject(); {
 						NewSimpleCurve.AddKey(Key->GetNumberField(TEXT("Time")), Key->GetNumberField(TEXT("Value")));
 					}
 				}
+			}
 		}
 
-		// Inherited data from FRealCurve
+		/* Inherited data from FRealCurve */
 		RealCurve.SetDefaultValue(CurveData->GetNumberField(TEXT("DefaultValue")));
 		RealCurve.PreInfinityExtrap = 
 			static_cast<ERichCurveExtrapolation>(
@@ -98,11 +93,11 @@ bool ICurveTableImporter::Import() {
 				StaticEnum<ERichCurveExtrapolation>()->GetValueByNameString(CurveData->GetStringField(TEXT("PostInfinityExtrap")))
 			);
 
-		// Update Curve Table
+		/* Update Curve Table */
 		CurveTable->OnCurveTableChanged().Broadcast();
 		CurveTable->Modify(true);
 	}
 
-	// Handle edit changes, and add it to the content browser
+	/* Handle edit changes, and add it to the content browser */
 	return OnAssetCreation(CurveTable);
 }

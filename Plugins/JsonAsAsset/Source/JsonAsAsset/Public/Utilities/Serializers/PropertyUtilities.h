@@ -1,9 +1,11 @@
-// Copyright JAA Contributors 2024-2025
+/* Copyright JsonAsAsset Contributors 2024-2025 */
 
 #pragma once
 
 #include "ObjectUtilities.h"
+#include "Containers/ObjectExport.h"
 #include "Dom/JsonObject.h"
+#include "Structs/StructSerializer.h"
 #include "UObject/Object.h"
 #include "UObject/UnrealType.h"
 #include "PropertyUtilities.generated.h"
@@ -14,58 +16,14 @@ USTRUCT()
 struct FFailedPropertyInfo
 {
 	GENERATED_BODY()
-
 public:
-
 	FString ClassName;
 	FString ObjectPath;
 	FString SuperStructName;
 
-	bool operator==(const FFailedPropertyInfo& Other) const
-	{
-		return ClassName == Other.ClassName &&
-			   SuperStructName == Other.SuperStructName &&
-			   ObjectPath == Other.ObjectPath;
+	bool operator==(const FFailedPropertyInfo& Other) const {
+		return ClassName == Other.ClassName && SuperStructName == Other.SuperStructName && ObjectPath == Other.ObjectPath;
 	}
-};
-
-/** Handles struct serialization */
-class JSONASASSET_API FStructSerializer
-{
-public:
-	virtual ~FStructSerializer() = default;
-	virtual void Serialize(UScriptStruct* Struct, const TSharedPtr<FJsonObject> JsonValue, const void* StructData, TArray<int32>* OutReferencedSubobjects) = 0;
-	virtual void Deserialize(UScriptStruct* Struct, void* StructData, const TSharedPtr<FJsonObject> JsonValue) = 0;
-	virtual bool Compare(UScriptStruct* Struct, const TSharedPtr<FJsonObject> JsonValue, const void* StructData, const TSharedPtr<FObjectCompareContext> Context) = 0;
-};
-
-/** Fallback struct serializer using default UE reflection */
-class FFallbackStructSerializer : public FStructSerializer
-{
-	UPropertySerializer* PropertySerializer;
-
-public:
-	FFallbackStructSerializer(UPropertySerializer* PropertySerializer);
-
-	virtual void Serialize(UScriptStruct* Struct, const TSharedPtr<FJsonObject> JsonValue, const void* StructValue, TArray<int32>* OutReferencedSubobjects) override;
-	virtual void Deserialize(UScriptStruct* Struct, void* StructValue, const TSharedPtr<FJsonObject> JsonValue) override;
-	virtual bool Compare(UScriptStruct* Struct, const TSharedPtr<FJsonObject> JsonValue, const void* StructData, const TSharedPtr<FObjectCompareContext> Context) override;
-};
-
-class FDateTimeSerializer : public FStructSerializer
-{
-public:
-	virtual void Serialize(UScriptStruct* Struct, const TSharedPtr<FJsonObject> JsonValue, const void* StructData, TArray<int32>* OutReferencedSubobjects) override;
-	virtual void Deserialize(UScriptStruct* Struct, void* StructData, const TSharedPtr<FJsonObject> JsonValue) override;
-	virtual bool Compare(UScriptStruct* Struct, const TSharedPtr<FJsonObject> JsonValue, const void* StructData, const TSharedPtr<FObjectCompareContext> Context) override;
-};
-
-class FTimespanSerializer : public FStructSerializer
-{
-public:
-	virtual void Serialize(UScriptStruct* Struct, const TSharedPtr<FJsonObject> JsonValue, const void* StructData, TArray<int32>* OutReferencedSubobjects) override;
-	virtual void Deserialize(UScriptStruct* Struct, void* StructData, const TSharedPtr<FJsonObject> JsonValue) override;
-	virtual bool Compare(UScriptStruct* Struct, const TSharedPtr<FJsonObject> JsonValue, const void* StructData, const TSharedPtr<FObjectCompareContext> Context) override;
 };
 
 UCLASS()
@@ -80,17 +38,17 @@ class JSONASASSET_API UPropertySerializer : public UObject
 
 	UPROPERTY()
 	TArray<UStruct*> PinnedStructs;
+	
 	TArray<FProperty*> BlacklistedProperties;
-
 	TSharedPtr<FStructSerializer> FallbackStructSerializer;
 	TMap<UScriptStruct*, TSharedPtr<FStructSerializer>> StructSerializers;
-	
 public:
 	UPropertySerializer();
 
-	TMap<FString, UObject*> ReferencedObjects;
-	
+	FUObjectExportContainer ExportsContainer;
+	TArray<FString> BlacklistedPropertyNames;
 	TArray<FFailedPropertyInfo> FailedProperties;
+	
 	void ClearCachedData();
 
 	/** Disables property serialization entirely */
@@ -98,22 +56,12 @@ public:
 	void AddStructSerializer(UScriptStruct* Struct, const TSharedPtr<FStructSerializer>& Serializer);
 
 	/** Checks whenever we should serialize property in question at all */
-	bool ShouldSerializeProperty(FProperty* Property) const;
-
-	TSharedRef<FJsonValue> SerializePropertyValue(FProperty* Property, const void* Value, TArray<int32>* OutReferencedSubobjects = NULL);
-	TSharedRef<FJsonObject> SerializeStruct(UScriptStruct* Struct, const void* Value, TArray<int32>* OutReferencedSubobjects = NULL);
+	bool ShouldDeserializeProperty(FProperty* Property) const;
 
 	void DeserializePropertyValue(FProperty* Property, const TSharedRef<FJsonValue>& Value, void* OutValue);
-	void DeserializeStruct(UScriptStruct* Struct, const TSharedRef<FJsonObject>& Value, void* OutValue);
-
-	bool ComparePropertyValues(FProperty* Property, const TSharedRef<FJsonValue>& JsonValue, const void* CurrentValue, const TSharedPtr<FObjectCompareContext> Context = MakeShareable(new FObjectCompareContext));
-	bool CompareStructs(UScriptStruct* Struct, const TSharedRef<FJsonObject>& JsonValue, const void* CurrentValue, const TSharedPtr<FObjectCompareContext> Context = MakeShareable(new FObjectCompareContext));
-	void DeserializePropertyValueInner(FProperty* Property, const TSharedRef<FJsonValue>& Value, void* OutValue);
-
+	void DeserializeStruct(UScriptStruct* Struct, const TSharedRef<FJsonObject>& Value, void* OutValue) const;
 private:
-	FStructSerializer* GetStructSerializer(UScriptStruct* Struct) const;
-	bool ComparePropertyValuesInner(FProperty* Property, const TSharedRef<FJsonValue>& JsonValue, const void* CurrentValue, const TSharedPtr<FObjectCompareContext> Context);
-	TSharedRef<FJsonValue> SerializePropertyValueInner(FProperty* Property, const void* Value, TArray<int32>* OutReferencedSubobjects);
+	FStructSerializer* GetStructSerializer(const UScriptStruct* Struct) const;
 };
 
 /* Use to handle differentiating formats produced by CUE4Parse */
@@ -125,7 +73,7 @@ inline bool PassthroughPropertyHandler(FProperty* Property, const FString& Prope
 		/* Finds array elements with the format: PropertyName[Index] and sets them properly into an array */
 		for (const auto& Pair : Properties->Values) {
 			const FString& Key = Pair.Key;
-			TSharedPtr<FJsonValue> Value = Pair.Value;
+			const TSharedPtr<FJsonValue> Value = Pair.Value;
 
 			/* If it doesn't start with the same property name */
 			if (!Key.StartsWith(PropertyName)) continue;
@@ -166,7 +114,7 @@ inline bool PassthroughPropertyHandler(FProperty* Property, const FString& Prope
 			
 			const TSharedRef<FJsonValue> ArrayJsonValue = ArrayJsonElement.ToSharedRef();
 
-			PropertySerializer->DeserializePropertyValueInner(Property, ArrayJsonValue, ArrayPropertyValue);
+			PropertySerializer->DeserializePropertyValue(Property, ArrayJsonValue, ArrayPropertyValue);
 		}
 
 		return true;

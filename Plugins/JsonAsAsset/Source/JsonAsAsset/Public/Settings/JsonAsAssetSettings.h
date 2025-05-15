@@ -1,4 +1,4 @@
-// Copyright JAA Contributors 2024-2025
+/* Copyright JsonAsAsset Contributors 2024-2025 */
 
 #pragma once
 
@@ -33,6 +33,21 @@ public:
 	bool bSkipResultNodeConnection;
 };
 
+/* Settings for animation blueprints */
+USTRUCT()
+struct FJAnimationBlueprintImportSettings
+{
+	GENERATED_BODY()
+public:
+	/* Constructor to initialize default values */
+	FJAnimationBlueprintImportSettings()
+		: bShowAllNodeKeysAsComment(false)
+	{}
+
+	UPROPERTY(EditAnywhere, Config, AdvancedDisplay, Category = "Animation Blueprint Settings")
+	bool bShowAllNodeKeysAsComment;
+};
+
 /* Settings for textures */
 USTRUCT()
 struct FJTextureImportSettings
@@ -50,7 +65,7 @@ public:
 	 * Use Case:
 	 * This option is useful when you need to re-import textures that have been updated in a newer version of your Local Fetch build.
 	 */
-	UPROPERTY(EditAnywhere, Config, Category = "Local Fetch - Encryption", meta=(EditCondition="bEnableLocalFetch"), AdvancedDisplay)
+	UPROPERTY(EditAnywhere, Config, AdvancedDisplay, Category = "Texture Import Settings")
 	bool bDownloadExistingTextures;
 };
 
@@ -71,39 +86,37 @@ struct FAssetSettings
 public:
 	/* Constructor to initialize default values */
 	FAssetSettings()
-		: bSavePackagesOnImport(false), bEnableAssetTools(false)
+		: bSavePackagesOnImport(false)
 	{
 		MaterialImportSettings = FJMaterialImportSettings();
 		SoundImportSettings = FJSoundImportSettings();
 		TextureImportSettings = FJTextureImportSettings();
+		AnimationBlueprintImportSettings = FJAnimationBlueprintImportSettings();
 	}
 
-	UPROPERTY(EditAnywhere, Config, Category = "Asset Settings")
+	UPROPERTY(EditAnywhere, Config, Category = AssetSettings)
 	FJTextureImportSettings TextureImportSettings;
 	
-	UPROPERTY(EditAnywhere, Config, Category = "Asset Settings")
+	UPROPERTY(EditAnywhere, Config, Category = AssetSettings)
 	FJMaterialImportSettings MaterialImportSettings;
 
-	UPROPERTY(EditAnywhere, Config, Category = "Asset Settings")
+	UPROPERTY(EditAnywhere, Config, Category = AssetSettings)
 	FJSoundImportSettings SoundImportSettings;
 
-	UPROPERTY(EditAnywhere, Config, Category = "Asset Settings", meta = (DisplayName = "Save Assets On Import"))
+	UPROPERTY(EditAnywhere, Config, Category = AssetSettings)
+	FJAnimationBlueprintImportSettings AnimationBlueprintImportSettings;
+
+	UPROPERTY(EditAnywhere, Config, Category = AssetSettings, meta = (DisplayName = "Save Assets On Import"))
 	bool bSavePackagesOnImport;
 
-	UPROPERTY(EditAnywhere, Config, Category = "Asset Settings", meta = (DisplayName = "Enable Asset Tools (experimental)"))
-	bool bEnableAssetTools;
-
-	/**
-	* This property is generally not required for normal operations, but is necessary for compatibility with older versions of game builds.
-	*/
-	UPROPERTY(EditAnywhere, Config, Category = "Asset Settings")
+	/* Unreal Engine Game's Project Name (Set by Local Fetch) */
+	UPROPERTY(EditAnywhere, Config, Category = AssetSettings)
 	FString GameName;
 };
 
-// A user-friendly Unreal Engine plugin designed to import assets from packaged games through JSON files
+/* A user-friendly Unreal Engine plugin designed to import assets from packaged games through JSON files */
 UCLASS(Config = EditorPerProjectUserSettings, DefaultConfig)
-class JSONASASSET_API UJsonAsAssetSettings : public UDeveloperSettings
-{
+class JSONASASSET_API UJsonAsAssetSettings : public UDeveloperSettings {
 	GENERATED_BODY()
 
 public:
@@ -117,11 +130,15 @@ public:
 	 * Specifies the directory path for exported assets.
 	 * (e.g., Output/Exports)
 	 */
-	UPROPERTY(EditAnywhere, Config, Category = "Configuration")
+	UPROPERTY(EditAnywhere, Config, Category = Configuration)
 	FDirectoryPath ExportDirectory;
 	
-	UPROPERTY(EditAnywhere, Config, Category = "Configuration")
+	UPROPERTY(EditAnywhere, Config, Category = Configuration)
 	FAssetSettings AssetSettings;
+
+	/* Enables experimental/developing features of JsonAsAsset. Features may not work as intended. */
+	UPROPERTY(EditAnywhere, Config, Category = Configuration, AdvancedDisplay)
+	bool bEnableExperiments;
 
 	/**
 	 * Retrieves assets from a locally hosted API and imports them directly into your project.
@@ -133,38 +150,42 @@ public:
 	bool bEnableLocalFetch;
 
 	/**
-	 * Specifies the directory path to the Paks folder
+	 * Specific Paks folder of your game
 	 */
-	UPROPERTY(EditAnywhere, Config, Category = "Local Fetch - Configuration", meta=(EditCondition="bEnableLocalFetch"))
+	UPROPERTY(EditAnywhere, Config, Category = "Local Fetch - Configuration", meta=(EditCondition="bEnableLocalFetch", DisplayName="Directory"))
 	FDirectoryPath ArchiveDirectory;
 
-	UPROPERTY(EditAnywhere, Config, Category = "Local Fetch - Configuration", meta=(EditCondition="bEnableLocalFetch"))
-	TEnumAsByte<ECUE4ParseVersion> UnrealVersion;
+	/**
+	 * Unreal Engine version of your game
+	 */
+	UPROPERTY(EditAnywhere, Config, Category = "Local Fetch - Configuration", meta=(EditCondition="bEnableLocalFetch", DisplayName="Unreal Engine"))
+	TEnumAsByte<ECUE4ParseVersion> UnrealVersion = GAME_UE5_LATEST;
 
 	/**
-	 * Specifies the file path to the mappings file.
+	 * Specifies the file path to your mappings file
 	 */
-	UPROPERTY(EditAnywhere, Config, Category = "Local Fetch - Configuration", meta=(EditCondition="bEnableLocalFetch", FilePathFilter="usmap", RelativeToGameDir))
+	UPROPERTY(EditAnywhere, Config, Category = "Local Fetch - Configuration", meta=(EditCondition="bEnableLocalFetch", FilePathFilter="usmap", RelativeToGameDir, DisplayName="Mappings File .usmap"))
 	FFilePath MappingFilePath;
 
 	/**
-	 * Specifies the main archive key used for decrypting encrypted game files.
+	 * Specifies the main encryption key used for decrypting encrypted game files.
 	 *
 	 * Default value:
-	 *   AES Key: 0x00000000000000000000000000000000000000000000000000000000000
+	 *   AES Key: 0x0000000000000000000000000000000000000000000000000000000000000000
 	 *
 	 * Note: This key is optional for most Unreal Engine games. Override it only if your build uses encryption.
 	 */
-	UPROPERTY(EditAnywhere, Config, Category = "Local Fetch - Encryption", meta=(EditCondition="bEnableLocalFetch", DisplayName="Archive Key"))
-	FString ArchiveKey = "0x00000000000000000000000000000000000000000000000000000000000";
+	UPROPERTY(EditAnywhere, Config, Category = "Local Fetch - Encryption", meta=(EditCondition="bEnableLocalFetch", DisplayName="Encryption Key"))
+	FString ArchiveKey = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
 	/**
-	 * Specifies additional archive keys used for decrypting encrypted game files.
+	 * Specifies additional encryption keys used for decrypting encrypted game files.
 	 *
 	 * Note: These keys are optional for most Unreal Engine games. Override them only if your build uses encryption.
 	 */
 	UPROPERTY(EditAnywhere, Config, Category = "Local Fetch - Encryption", meta=(EditCondition="bEnableLocalFetch", DisplayName="Dynamic Keys"))
-	TArray<FAesKey> DynamicKeys;
+	TArray<FLocalFetchAES> DynamicKeys;
+	
 	/**
 	 * Local Fetch URL
 	 *

@@ -1,16 +1,13 @@
-﻿// Copyright JAA Contributors 2024-2025
+﻿/* Copyright JsonAsAsset Contributors 2024-2025 */
 
 #pragma once
 
+#include "Utilities/Serializers/PropertyUtilities.h"
 #include "Dom/JsonObject.h"
 
-#include "Utilities/Serializers/PropertyUtilities.h"
-
-struct FTextureCreatorUtilities
-{
+struct FTextureCreatorUtilities {
 public:
-	FTextureCreatorUtilities(const FString& FileName, const FString& FilePath, UPackage* Package, 
-			  UPackage* OutermostPkg)
+	FTextureCreatorUtilities(const FString& FileName, const FString& FilePath, UPackage* Package, UPackage* OutermostPkg)
 		: FileName(FileName), FilePath(FilePath), Package(Package), OutermostPkg(OutermostPkg)
 	{
 		PropertySerializer = NewObject<UPropertySerializer>();
@@ -24,8 +21,8 @@ public:
 	bool CreateVolumeTexture(UTexture*& OutVolumeTexture, TArray<uint8>& Data, const TSharedPtr<FJsonObject>& Properties) const;
 	bool CreateRenderTarget2D(UTexture*& OutRenderTarget2D, const TSharedPtr<FJsonObject>& Properties) const;
 
+	/* Deserialization functions */
 	bool DeserializeTexture2D(UTexture2D* InTexture2D, const TSharedPtr<FJsonObject>& Properties) const;
-	
 	bool DeserializeTexture(UTexture* Texture, const TSharedPtr<FJsonObject>& Properties) const;
 
 private:
